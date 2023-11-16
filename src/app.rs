@@ -1,7 +1,19 @@
 use crate::kv_store;
 use hotstuff_rs::app;
 
-struct AppImpl(u64);
+pub struct AppImpl();
+
+impl AppImpl {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for AppImpl {
+    fn default() -> Self {
+        Self()
+    }
+}
 
 impl app::App<kv_store::KVStoreImpl> for AppImpl {
     fn chain_id(&self) -> hotstuff_rs::types::ChainID {
