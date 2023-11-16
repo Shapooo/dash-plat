@@ -5,6 +5,18 @@ use std::sync::{Arc, RwLock};
 #[derive(Clone)]
 pub struct KVStoreImpl(Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>);
 
+impl KVStoreImpl {
+    pub fn new() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl Default for KVStoreImpl {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
 impl state::KVGet for KVStoreImpl {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         let map = self.0.read().unwrap();
