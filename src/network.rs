@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{
-    mpsc::{channel, Receiver, Sender},
-    Arc, Mutex, RwLock,
+    mpsc::{channel, Receiver, Sender, TryRecvError},
+    Arc, Mutex, RwLock, TryLockError,
 };
 use std::thread::spawn;
 
 use hotstuff_rs::{
-    messages::Message,
+    messages::Message as HsMessage,
     networking,
     types::{PublicKeyBytes, ValidatorSet, ValidatorSetUpdates},
 };
@@ -15,18 +15,21 @@ use hotstuff_rs::{
 #[derive(Clone)]
 pub struct NetworkImpl {
     validator_set: Arc<RwLock<ValidatorSet>>,
-    address_map: Arc<RwLock<HashMap<PublicKeyBytes, SocketAddr>>>,
+    peer_address: Arc<RwLock<HashMap<PublicKeyBytes, SocketAddr>>>,
     tx_sender: Sender<Message>,
     rx_receiver: Arc<Mutex<Receiver<Message>>>,
+    host_addr: SocketAddr,
 }
 
 impl NetworkImpl {
-    pub fn new() -> Self {
+    pub fn new(initial_peers: HashMap<PublicKeyBytes, SocketAddr>, host_addr: SocketAddr) -> Self {
+        let peer_address = Arc::new(RwLock::new(initial_peers));
         let (tx_sender, tx_receiver) = channel::<Message>();
         let (rx_sender, rx_receiver) = channel::<Message>();
+
+        // TODO: impl receiving thread
         spawn(move || {
-            let mut connection_map: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
-            let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+            let listener = TcpListener::bind(host_addr).unwrap();
             loop {
                 match listener.accept() {
                     Ok((_socket, addr)) => println!("new client: {addr:?}"),
@@ -34,19 +37,32 @@ impl NetworkImpl {
                 }
             }
         });
-        spawn(move || {
-            let mut connection_map: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
-            let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
-            loop {
-                let msg = tx_receiver.recv().unwrap();
-                // TODO
-            }
-        });
+        {
+            // TODO: send msg
+            // TODO: exception handle when connect
+            let peer_address = peer_address.clone();
+            spawn(move || {
+                let mut connection_map: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
+                loop {
+                    let msg = tx_receiver.recv().unwrap();
+                    let stream = match connection_map.get(&msg.0) {
+                        Some(stream) => stream,
+                        None => {
+                            let addr = peer_address.read().unwrap().get(&msg.0).unwrap().clone();
+                            let stream = TcpStream::connect(addr).unwrap();
+                            connection_map.insert(msg.0.clone(), stream);
+                            connection_map.get(&msg.0).unwrap()
+                        }
+                    };
+                }
+            });
+        }
         Self {
             validator_set: Arc::new(RwLock::new(ValidatorSet::new())),
-            address_map: Arc::new(RwLock::new(HashMap::new())),
+            peer_address,
             tx_sender,
             rx_receiver: Arc::new(Mutex::new(rx_receiver)),
+            host_addr,
         }
     }
 }
@@ -60,7 +76,7 @@ impl networking::Network for NetworkImpl {
         self.validator_set.write().unwrap().apply_updates(&updates);
     }
 
-    fn broadcast(&mut self, message: Message) {
+    fn broadcast(&mut self, message: HsMessage) {
         let validators: Vec<_> = self
             .validator_set
             .read()
@@ -73,11 +89,23 @@ impl networking::Network for NetworkImpl {
         }
     }
 
-    fn send(&mut self, peer: PublicKeyBytes, message: Message) {
-        self.tx_sender.send(message).unwrap();
+    fn send(&mut self, peer: PublicKeyBytes, message: HsMessage) {
+        self.tx_sender.send(Message(peer, message)).unwrap();
     }
 
-    fn recv(&mut self) -> Option<(PublicKeyBytes, Message)> {
-        todo!()
+    fn recv(&mut self) -> Option<(PublicKeyBytes, HsMessage)> {
+        let chan = match self.rx_receiver.try_lock() {
+            Ok(chan) => chan,
+            Err(TryLockError::WouldBlock) => return None,
+            Err(e) => Err(e).unwrap(),
+        };
+        match chan.try_recv() {
+            Ok(msg) => Some((msg.0, msg.1)),
+            Err(TryRecvError::Empty) => None,
+            Err(e) => Err(e).unwrap(),
+        }
     }
 }
+
+// TODO: add Signature
+struct Message(PublicKeyBytes, HsMessage);
