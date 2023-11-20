@@ -9,6 +9,7 @@ use hotstuff_rs::{
 };
 
 fn main() {
+    simple_logger::init().unwrap();
     let config = Config::new().unwrap();
     let app = app::AppImpl::new();
     let mut initial_validators = ValidatorSetUpdates::new();

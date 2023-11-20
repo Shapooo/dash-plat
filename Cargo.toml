@@ -12,7 +12,9 @@ borsh = "0.10"
 ed25519 = { version = "1.5.3", features = ["pkcs8", "alloc", "pem"] }
 ed25519-dalek = "1"
 hotstuff_rs = "0.2.2"
+log = "0.4.20"
 pkcs8 = { version = "0.9", features = ["pem"] }
 rand = "0.7"
 serde = { version = "1.0.192", features = ["serde_derive"] }
 serde_yaml = "0.9.27"
+simple_logger = "4.2.0"
