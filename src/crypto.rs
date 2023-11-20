@@ -45,6 +45,18 @@ pub fn keypair_from_bytes(kpb: KeypairBytes) -> Result<DalekKeypair> {
     Ok(DalekKeypair { secret, public })
 }
 
-// pub fn publickey_to_bytes(pubkey: PublicKey) -> PublicKeyBytes {
-//     PublicKeyBytes(pubkey.to_bytes())
-// }
+#[cfg(test)]
+mod crypto_tests {
+    use super::*;
+
+    #[test]
+    fn basic_test() {
+        let keypair = generate_keypair();
+        let pubkey_bytes = keypair.public.to_bytes();
+        let sk_pem = keypair_to_pem(keypair);
+        let pk_b64 = publickey_to_base64(pubkey_bytes);
+        let pubkeybytes = publickey_from_base64(&pk_b64).unwrap();
+        let keypair_parsed = keypair_from_pem(&sk_pem).unwrap();
+        assert_eq!(keypair_parsed.public.to_bytes(), pubkeybytes);
+    }
+}
