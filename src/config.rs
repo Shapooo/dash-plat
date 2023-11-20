@@ -2,20 +2,26 @@ use crate::crypto;
 
 use std::collections::{HashMap, HashSet};
 use std::env::current_exe;
+use std::fs::{read_dir, read_to_string, File};
+use std::io::Read;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use hotstuff_rs::types::PublicKeyBytes;
-use serde::{Deserialize, Deserializer, Serialize};
+use hotstuff_rs::types::{DalekKeypair, PublicKeyBytes};
+use serde::{Deserialize, Deserializer};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct Config {
     pub host_address: SocketAddr,
-    #[serde(deserialize_with = "parse_peer_addresses")]
+    pub my_secretkey_path: PathBuf,
+    #[serde(skip)]
+    pub my_keypair: Option<DalekKeypair>,
+    pub peer_config_path: PathBuf,
+    #[serde(skip)]
     pub peer_addresses: HashMap<PublicKeyBytes, SocketAddr>,
-    #[serde(deserialize_with = "parse_validators")]
+    #[serde(skip)]
     pub validators: HashSet<PublicKeyBytes>,
     #[serde(deserialize_with = "parse_seconds")]
     pub minimum_view_timeout: Duration,
@@ -29,7 +35,7 @@ impl Config {
         if !path.as_ref().is_file() {
             return Err(anyhow!("config file not found"));
         }
-        let config_str = std::fs::read_to_string(path).unwrap();
+        let config_str = read_to_string(path).unwrap();
         Ok(serde_yaml::from_str::<Config>(&config_str)?)
     }
 
@@ -40,7 +46,35 @@ impl Config {
             .unwrap()
             .join("config")
             .join("config.yaml");
-        Self::from_path(config_path)
+        let mut res = Self::from_path(config_path)?;
+
+        let pem = read_to_string(&res.my_secretkey_path).unwrap();
+        res.my_keypair = Some(crypto::keypair_from_pem(&pem)?);
+        res.load_peers();
+        Ok(res)
+    }
+
+    fn load_peers(&mut self) {
+        let confs_entry: Result<Vec<_>, _> = read_dir(&self.peer_config_path)
+            .unwrap()
+            .into_iter()
+            .collect();
+        self.peer_addresses = confs_entry
+            .unwrap()
+            .into_iter()
+            .filter_map(|entry| {
+                if entry.path().is_file() {
+                    let mut f = File::open(entry.path()).unwrap();
+                    let mut buf = String::new();
+                    f.read_to_string(&mut buf).unwrap();
+                    let conf = serde_yaml::from_str::<PeerConfig>(&buf).unwrap();
+                    Some((conf.public_key, conf.host_addr))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        self.validators = self.peer_addresses.keys().copied().collect();
     }
 }
 
@@ -52,26 +86,17 @@ where
     Ok(Duration::from_secs(secs))
 }
 
-fn parse_peer_addresses<'de, D>(d: D) -> Result<HashMap<PublicKeyBytes, SocketAddr>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let pa_map: HashMap<String, SocketAddr> = Deserialize::deserialize(d)?;
-    let res: Result<HashMap<_, _>> = pa_map
-        .into_iter()
-        .map(|(ps, addr)| crypto::publickey_from_base64(&ps).map(|ps| (ps, addr)))
-        .collect();
-    Ok(res.unwrap())
+#[derive(Clone, Deserialize)]
+struct PeerConfig {
+    host_addr: SocketAddr,
+    #[serde(deserialize_with = "parse_pubkey")]
+    public_key: PublicKeyBytes,
 }
 
-fn parse_validators<'de, D>(d: D) -> Result<HashSet<PublicKeyBytes>, D::Error>
+fn parse_pubkey<'de, D>(d: D) -> Result<PublicKeyBytes, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let validators: Vec<String> = Deserialize::deserialize(d)?;
-    let res: Result<HashSet<PublicKeyBytes>> = validators
-        .into_iter()
-        .map(|s| crypto::publickey_from_base64(&s))
-        .collect();
-    Ok(res.unwrap())
+    let pubkey: String = Deserialize::deserialize(d)?;
+    Ok(crypto::publickey_from_base64(&pubkey).unwrap())
 }
