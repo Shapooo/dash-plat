@@ -21,8 +21,6 @@ pub struct NetworkImpl {
     peer_addresses: Arc<RwLock<HashMap<PublicKeyBytes, SocketAddr>>>,
     tx_sender: Sender<Message>,
     rx_receiver: Arc<Mutex<Receiver<Message>>>,
-    sender_close: Sender<()>,
-    receiver_close: Sender<()>,
     host_addr: SocketAddr,
 }
 
@@ -31,20 +29,11 @@ impl NetworkImpl {
         let peer_address = Arc::new(RwLock::new(initial_peers));
         let (tx_sender, tx_receiver) = channel::<Message>();
         let (rx_sender, rx_receiver) = channel::<Message>();
-        let (sender_close, sender_close_rx) = channel::<()>();
-        let (receiver_close, receiver_close_rx) = channel::<()>();
 
         // TODO: impl receiving thread
         spawn(move || {
             let listener = TcpListener::bind(host_addr).unwrap();
             loop {
-                match receiver_close_rx.try_recv() {
-                    Ok(()) => return,
-                    Err(TryRecvError::Empty) => {}
-                    Err(TryRecvError::Disconnected) => {
-                        return;
-                    }
-                }
                 match listener.accept() {
                     Ok((mut socket, _addr)) => {
                         let msg = Message::deserialize_reader(&mut socket).unwrap();
@@ -60,13 +49,6 @@ impl NetworkImpl {
             spawn(move || {
                 let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
                 loop {
-                    match sender_close_rx.try_recv() {
-                        Ok(()) => return,
-                        Err(TryRecvError::Empty) => {}
-                        Err(TryRecvError::Disconnected) => {
-                            return;
-                        }
-                    }
                     let msg = tx_receiver.recv().unwrap();
                     let mut stream = match connections.get(&msg.0) {
                         Some(stream) => stream,
@@ -86,8 +68,6 @@ impl NetworkImpl {
             peer_addresses: peer_address,
             tx_sender,
             rx_receiver: Arc::new(Mutex::new(rx_receiver)),
-            sender_close,
-            receiver_close,
             host_addr,
         }
     }
@@ -130,13 +110,6 @@ impl networking::Network for NetworkImpl {
             Err(TryRecvError::Empty) => None,
             Err(e) => Err(e).unwrap(),
         }
-    }
-}
-
-impl Drop for NetworkImpl {
-    fn drop(&mut self) {
-        self.sender_close.send(()).unwrap();
-        self.receiver_close.send(()).unwrap();
     }
 }
 
