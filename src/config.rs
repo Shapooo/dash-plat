@@ -15,10 +15,8 @@ use serde::{Deserialize, Deserializer};
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub host_address: SocketAddr,
-    pub my_secretkey_path: PathBuf,
     #[serde(skip)]
     pub my_keypair: Option<DalekKeypair>,
-    pub peer_config_path: PathBuf,
     #[serde(skip)]
     pub peer_addresses: HashMap<PublicKeyBytes, SocketAddr>,
     #[serde(skip)]
@@ -41,24 +39,20 @@ impl Config {
 
     pub fn new() -> Result<Self> {
         let current_exe = current_exe()?;
-        let config_path = current_exe
-            .parent()
-            .unwrap()
-            .join("config")
-            .join("config.yaml");
+        let config_dir = current_exe.parent().unwrap().join("config");
+        let config_path = config_dir.join("config.yaml");
+        let peers_dir = config_dir.join("peers");
+        let seckey_path = config_dir.join("sec_key");
         let mut res = Self::from_path(config_path)?;
 
-        let pem = read_to_string(&res.my_secretkey_path).unwrap();
+        let pem = read_to_string(&seckey_path).unwrap();
         res.my_keypair = Some(crypto::keypair_from_pem(&pem)?);
-        res.load_peers();
+        res.load_peers(peers_dir);
         Ok(res)
     }
 
-    fn load_peers(&mut self) {
-        let confs_entry: Result<Vec<_>, _> = read_dir(&self.peer_config_path)
-            .unwrap()
-            .into_iter()
-            .collect();
+    fn load_peers(&mut self, peers_dir: PathBuf) {
+        let confs_entry: Result<Vec<_>, _> = read_dir(&peers_dir).unwrap().into_iter().collect();
         self.peer_addresses = confs_entry
             .unwrap()
             .into_iter()
