@@ -24,19 +24,6 @@ pub struct Config {
     pub sync_response_timeout: Duration,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            host_address: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
-            peer_addresses: Default::default(),
-            validators: Default::default(),
-            minimum_view_timeout: Default::default(),
-            sync_request_limit: Default::default(),
-            sync_response_timeout: Default::default(),
-        }
-    }
-}
-
 impl Config {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         if !path.as_ref().is_file() {
