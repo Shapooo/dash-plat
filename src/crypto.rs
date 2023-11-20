@@ -10,26 +10,16 @@ pub fn generate_keypair() -> DalekKeypair {
     ed25519_dalek::Keypair::generate(&mut rng)
 }
 
-pub fn secretkey_to_pem(keypair: DalekKeypair) -> String {
+pub fn keypair_to_pem(keypair: DalekKeypair) -> String {
     let kpb = keypair_to_bytes(keypair);
     kpb.to_pkcs8_pem(pkcs8::LineEnding::LF).unwrap().to_string()
 }
 
-pub fn secretkey_from_pem(pem: &str) -> Result<DalekKeypair> {
+pub fn keypair_from_pem(pem: &str) -> Result<DalekKeypair> {
     let kpb = KeypairBytes::from_pkcs8_pem(pem).unwrap();
     keypair_from_bytes(kpb)
 }
 
-// pub fn publickey_to_pem(pubkey: PublicKey) -> String {
-//     publickey_to_bytes(pubkey)
-//         .to_public_key_pem(pkcs8::LineEnding::LF)
-//         .unwrap()
-// }
-
-// pub fn publickey_from_pem(pem: &str) -> Result<PublicKey> {
-//     let pkb = PublicKeyBytes::from_public_key_pem(pem).unwrap();
-//     Ok(PublicKey::from_bytes(&pkb.to_bytes())?)
-// }
 pub fn publickey_to_base64(pubkey: PublicKeyBytes) -> String {
     general_purpose::STANDARD.encode(pubkey)
 }
