@@ -7,9 +7,15 @@ use hotstuff_rs::{
     replica::Replica,
     types::{AppStateUpdates, ValidatorSetUpdates},
 };
+use log::LevelFilter;
+use simple_logger::SimpleLogger;
 
 fn main() {
-    simple_logger::init().unwrap();
+    SimpleLogger::new()
+        .with_level(LevelFilter::Debug)
+        .env()
+        .init()
+        .unwrap();
     let config = Config::new().unwrap();
     let app = app::AppImpl::new();
     let mut initial_validators = ValidatorSetUpdates::new();
