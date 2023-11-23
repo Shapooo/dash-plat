@@ -1,4 +1,4 @@
-use dash_plat::{app, config::Config, kv_store::KVStoreImpl, network::NetworkImpl};
+use dash_node::{app, config::Config, kv_store::KVStoreImpl, network::NetworkImpl};
 
 use hotstuff_rs::{
     pacemaker::DefaultPacemaker,

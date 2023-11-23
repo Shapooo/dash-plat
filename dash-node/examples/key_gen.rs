@@ -1,4 +1,4 @@
-use dash_plat::crypto;
+use dash_node::crypto;
 
 use std::fs::OpenOptions;
 use std::io::Write;
