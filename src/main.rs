@@ -24,13 +24,18 @@ fn main() {
     let kv_store = KVStoreImpl::default();
 
     Replica::initialize(kv_store.clone(), AppStateUpdates::new(), initial_validators);
-    let network = NetworkImpl::new(config.peer_addresses, config.host_address);
+    let keypair = config.my_keypair.unwrap();
+    let network = NetworkImpl::new(
+        config.peer_addresses,
+        config.host_address,
+        keypair.public.to_bytes(),
+    );
 
     let pacemaker = DefaultPacemaker::new(
         config.minimum_view_timeout,
         config.sync_request_limit,
         config.sync_response_timeout,
     );
-    let _replica = Replica::start(app, config.my_keypair, network, kv_store, pacemaker);
+    let _replica = Replica::start(app, keypair, network, kv_store, pacemaker);
     loop {}
 }
