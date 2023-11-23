@@ -181,6 +181,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dash-tools"
+version = "0.1.0"
+dependencies = [
+ "dash-node",
+]
+
+[[package]]
 name = "der"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
