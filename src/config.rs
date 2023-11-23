@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use hotstuff_rs::types::{DalekKeypair, PublicKeyBytes};
+use log::debug;
 use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize)]
@@ -21,10 +22,16 @@ pub struct Config {
     pub peer_addresses: HashMap<PublicKeyBytes, SocketAddr>,
     #[serde(skip)]
     pub validators: HashSet<PublicKeyBytes>,
-    #[serde(deserialize_with = "parse_seconds")]
+    #[serde(
+        deserialize_with = "parse_milliseconds",
+        rename = "minimum_view_timeout_ms"
+    )]
     pub minimum_view_timeout: Duration,
     pub sync_request_limit: u32,
-    #[serde(deserialize_with = "parse_seconds")]
+    #[serde(
+        deserialize_with = "parse_milliseconds",
+        rename = "sync_response_timeout_ms"
+    )]
     pub sync_response_timeout: Duration,
 }
 
@@ -46,7 +53,12 @@ impl Config {
         let mut res = Self::from_path(config_path)?;
 
         let pem = read_to_string(&seckey_path).unwrap();
-        res.my_keypair = Some(crypto::keypair_from_pem(&pem)?);
+        let keypair = crypto::keypair_from_pem(&pem)?;
+        debug!(
+            "my pubkey is {}",
+            crypto::publickey_to_base64(keypair.public.to_bytes())
+        );
+        res.my_keypair = Some(keypair);
         res.load_peers(peers_dir);
         Ok(res)
     }
@@ -72,12 +84,12 @@ impl Config {
     }
 }
 
-fn parse_seconds<'de, D>(d: D) -> Result<Duration, D::Error>
+fn parse_milliseconds<'de, D>(d: D) -> Result<Duration, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let secs: u64 = Deserialize::deserialize(d)?;
-    Ok(Duration::from_secs(secs))
+    let millisecs: u64 = Deserialize::deserialize(d)?;
+    Ok(Duration::from_millis(millisecs))
 }
 
 #[derive(Clone, Deserialize)]

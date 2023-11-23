@@ -1,6 +1,6 @@
 host_address: 127.0.0.1:8080
 # my_secretkey_path: ./config/sec_key
 # peer_config_path: ./config/peers
-minimum_view_timeout: 5
+minimum_view_timeout_ms: 500
 sync_request_limit: 10
-sync_response_timeout: 5
+sync_response_timeout_ms: 5000
