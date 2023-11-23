@@ -18,7 +18,7 @@ fn main() {
     let app = app::AppImpl::new();
     let mut initial_validators = ValidatorSetUpdates::new();
     config.validators.iter().for_each(|pubkey| {
-        initial_validators.insert(pubkey.clone(), 0);
+        initial_validators.insert(pubkey.clone(), 1);
     });
 
     let kv_store = KVStoreImpl::default();
