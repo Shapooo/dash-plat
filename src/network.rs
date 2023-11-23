@@ -41,10 +41,21 @@ impl NetworkImpl {
             loop {
                 match listener.accept() {
                     Ok((mut socket, _addr)) => {
-                        let msg = Message::deserialize_reader(&mut socket).unwrap();
-                        rx_sender.send(msg).unwrap();
+                        socket.set_read_timeout(None).unwrap();
+                        {
+                            let rx_sender = rx_sender.clone();
+                            spawn(move || loop {
+                                let msg = Message::deserialize_reader(&mut socket).unwrap();
+                                trace!(
+                                    "received msg from: {} {}",
+                                    _addr,
+                                    crate::crypto::publickey_to_base64(msg.0)
+                                );
+                                rx_sender.send(msg).unwrap();
+                            });
+                        }
                     }
-                    Err(e) => println!("couldn't get client: {e:?}"),
+                    Err(e) => error!("couldn't get client: {e:?}"),
                 }
             }
         });
