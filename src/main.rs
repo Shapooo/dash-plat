@@ -1,6 +1,4 @@
-use dash_plat::{
-    app, config::Config, crypto::generate_keypair, kv_store::KVStoreImpl, network::NetworkImpl,
-};
+use dash_plat::{app, config::Config, kv_store::KVStoreImpl, network::NetworkImpl};
 
 use hotstuff_rs::{
     pacemaker::DefaultPacemaker,
@@ -33,6 +31,6 @@ fn main() {
         config.sync_request_limit,
         config.sync_response_timeout,
     );
-    let _replica = Replica::start(app, generate_keypair(), network, kv_store, pacemaker);
+    let _replica = Replica::start(app, config.my_keypair, network, kv_store, pacemaker);
     loop {}
 }
