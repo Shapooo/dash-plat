@@ -1,6 +1,8 @@
 [package]
 name = "dash-node"
 version = "0.1.0"
+authors = ["Shapooo <shabojia@outlook.com>"]
+about = "Validator node for dash."
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,6 +11,7 @@ edition = "2021"
 anyhow = "1.0.75"
 base64 = "0.21.5"
 borsh = "0.10"
+clap = "4.4.8"
 ed25519 = { version = "1.5.3", features = ["pkcs8", "alloc", "pem"] }
 ed25519-dalek = "1"
 hotstuff_rs = "0.2.2"

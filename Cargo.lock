@@ -263,6 +263,7 @@ dependencies = [
  "anyhow",
  "base64",
  "borsh",
+ "clap",
  "ed25519",
  "ed25519-dalek",
  "hotstuff_rs",
