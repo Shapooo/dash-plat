@@ -13,7 +13,7 @@ use hotstuff_rs::types::{DalekKeypair, PublicKeyBytes};
 use log::debug;
 use serde::{Deserialize, Deserializer, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub host_address: SocketAddr,
     #[serde(skip)]
@@ -24,12 +24,14 @@ pub struct Config {
     pub validators: HashSet<PublicKeyBytes>,
     #[serde(
         deserialize_with = "parse_milliseconds",
+        serialize_with = "serialize_milliseconds",
         rename = "minimum_view_timeout_ms"
     )]
     pub minimum_view_timeout: Duration,
     pub sync_request_limit: u32,
     #[serde(
         deserialize_with = "parse_milliseconds",
+        serialize_with = "serialize_milliseconds",
         rename = "sync_response_timeout_ms"
     )]
     pub sync_response_timeout: Duration,
@@ -112,4 +114,11 @@ where
     S: serde::Serializer,
 {
     s.serialize_str(&crypto::publickey_to_base64(*key))
+}
+
+fn serialize_milliseconds<S>(duration: &Duration, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_u128(duration.as_millis() as u128)
 }

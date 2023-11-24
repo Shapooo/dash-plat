@@ -1,8 +1,11 @@
-use dash_node::{config::PeerConfig, crypto};
+use dash_node::{
+    config::{Config, PeerConfig},
+    crypto,
+};
 
-use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
+use std::{fs::OpenOptions, time::Duration};
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
@@ -54,27 +57,51 @@ fn gen_config_file(mut path: PathBuf, port: u16) -> Result<()> {
     let keypair = crypto::generate_keypair();
     let pubkey_bytes = keypair.public.to_bytes();
     let pem = crypto::keypair_to_pem(keypair);
+    let name = path.file_name().unwrap().to_str().unwrap().to_string();
 
+    path.set_file_name(name.clone() + ".sec");
     let mut seckey_file = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(&path)
         .unwrap();
     seckey_file.write_all(pem.as_bytes()).unwrap();
 
-    let file_name = path.file_name().unwrap().to_str().unwrap();
-    path.set_file_name(file_name.to_string() + ".yaml");
-    let mut pubkey_file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(path)
-        .unwrap();
-    let config = PeerConfig {
+    path.set_file_name(name.clone() + ".peerconfig.yaml");
+    let peer_config = PeerConfig {
         host_addr: ("127.0.0.1:".to_string() + &port.to_string()).parse()?,
         public_key: pubkey_bytes,
     };
+    let peer_config_str = serde_yaml::to_string(&peer_config)?;
+    let mut peer_config_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    peer_config_file
+        .write_all(peer_config_str.as_bytes())
+        .unwrap();
+
+    path.set_file_name(name + ".config.yaml");
+    let config = Config {
+        validators: Default::default(),
+        peer_addresses: Default::default(),
+        my_keypair: None,
+        host_address: ("127.0.0.1:".to_string() + &port.to_string()).parse()?,
+        minimum_view_timeout: Duration::from_millis(500),
+        sync_request_limit: 100,
+        sync_response_timeout: Duration::from_millis(5000),
+    };
     let config_str = serde_yaml::to_string(&config)?;
-    pubkey_file.write_all(config_str.as_bytes()).unwrap();
+    let mut config_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    config_file.write_all(config_str.as_bytes()).unwrap();
 
     Ok(())
 }
@@ -84,18 +111,21 @@ fn gen_keypair_file(mut path: PathBuf) -> Result<()> {
     let pubkey_bytes = keypair.public.to_bytes();
     let pem = crypto::keypair_to_pem(keypair);
     let pk_b64 = crypto::publickey_to_base64(pubkey_bytes);
+    let name = path.file_name().unwrap().to_str().unwrap().to_string();
 
+    path.set_file_name(name.clone() + ".sec");
     let mut keypair_file = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(&path)
         .unwrap();
     keypair_file.write_all(pem.as_bytes()).unwrap();
 
-    let file_name = path.file_name().unwrap().to_str().unwrap();
-    path.set_file_name(file_name.to_string() + ".pub");
+    path.set_file_name(name + ".pub");
     let mut pubkey_file = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(path)
         .unwrap();
