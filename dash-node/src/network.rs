@@ -85,18 +85,21 @@ fn spawn_sending_thread(
         loop {
             let msg = tx_receiver.recv().unwrap();
             trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
-            let mut stream = match connections.get(&msg.0) {
-                Some(stream) => stream,
+            let stream = match connections.get(&msg.0) {
+                Some(stream) => Some(stream),
                 None => {
                     let addr = peer_addresses.get(&msg.0).unwrap().clone();
-                    let stream = TcpStream::connect(addr).unwrap();
-                    stream.set_write_timeout(None).unwrap();
-                    connections.insert(msg.0.clone(), stream);
-                    connections.get(&msg.0).unwrap()
+                    TcpStream::connect(addr).ok().and_then(|stream| {
+                        stream.set_write_timeout(None).unwrap();
+                        connections.insert(msg.0.clone(), stream);
+                        connections.get(&msg.0)
+                    })
                 }
             };
-            let msg = Message(public_key, msg.1);
-            stream.write(&msg.try_to_vec().unwrap()).unwrap();
+            if let Some(mut stream) = stream {
+                let msg = Message(public_key, msg.1);
+                stream.write(&msg.try_to_vec().unwrap()).unwrap();
+            }
         }
     });
 }
