@@ -19,7 +19,7 @@ use log::{error, trace};
 #[allow(dead_code)]
 pub struct NetworkImpl {
     validator_set: Arc<RwLock<ValidatorSet>>,
-    peer_addresses: Arc<RwLock<HashMap<PublicKeyBytes, SocketAddr>>>,
+    peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
     tx_sender: Sender<Message>,
     rx_receiver: Arc<Mutex<Receiver<Message>>>,
     host_addr: SocketAddr,
@@ -31,7 +31,7 @@ impl NetworkImpl {
         host_addr: SocketAddr,
         public_key: PublicKeyBytes,
     ) -> Self {
-        let peer_address = Arc::new(RwLock::new(initial_peers));
+        let peer_address = Arc::new(initial_peers);
         let (tx_sender, tx_receiver) = channel::<Message>();
         let (rx_sender, rx_receiver) = channel::<Message>();
 
@@ -77,7 +77,7 @@ fn spawn_receiving_thread(mut socket: TcpStream, _addr: SocketAddr, rx_sender: S
 
 fn spawn_sending_thread(
     tx_receiver: Receiver<Message>,
-    peer_address: Arc<RwLock<HashMap<PublicKeyBytes, SocketAddr>>>,
+    peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
     public_key: PublicKeyBytes,
 ) {
     spawn(move || {
@@ -88,7 +88,7 @@ fn spawn_sending_thread(
             let mut stream = match connections.get(&msg.0) {
                 Some(stream) => stream,
                 None => {
-                    let addr = peer_address.read().unwrap().get(&msg.0).unwrap().clone();
+                    let addr = peer_addresses.get(&msg.0).unwrap().clone();
                     let stream = TcpStream::connect(addr).unwrap();
                     stream.set_write_timeout(None).unwrap();
                     connections.insert(msg.0.clone(), stream);
