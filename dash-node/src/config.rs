@@ -38,22 +38,15 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        if !path.as_ref().is_file() {
-            return Err(anyhow!("config file not found"));
+    pub fn from_path<P: AsRef<Path>>(config_dir: P) -> Result<Self> {
+        if !config_dir.as_ref().is_dir() {
+            return Err(anyhow!("config dir not found, or not a directory"));
         }
-        let config_str = read_to_string(path).unwrap();
-        Ok(serde_yaml::from_str::<Config>(&config_str)?)
-    }
-
-    pub fn new() -> Result<Self> {
-        let current_exe = current_exe()?;
-        let config_dir = current_exe.parent().unwrap().join("config");
-        let config_path = config_dir.join("config.yaml");
-        let peers_dir = config_dir.join("peers");
-        let seckey_path = config_dir.join("sec_key");
-        let mut res = Self::from_path(config_path)?;
-
+        let config_path = config_dir.as_ref().join("config.yaml");
+        let peers_dir = config_dir.as_ref().join("peers");
+        let seckey_path = config_dir.as_ref().join("sec_key");
+        let config_str = read_to_string(config_path).unwrap();
+        let mut res = serde_yaml::from_str::<Config>(&config_str)?;
         let pem = read_to_string(&seckey_path).unwrap();
         let keypair = crypto::keypair_from_pem(&pem)?;
         debug!(
@@ -62,6 +55,13 @@ impl Config {
         );
         res.my_keypair = Some(keypair);
         res.load_peers(peers_dir);
+        Ok(res)
+    }
+
+    pub fn new() -> Result<Self> {
+        let current_exe = current_exe()?;
+        let config_dir = current_exe.parent().unwrap().join("config");
+        let res = Self::from_path(config_dir)?;
         Ok(res)
     }
 
