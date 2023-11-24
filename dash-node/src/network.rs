@@ -35,53 +35,9 @@ impl NetworkImpl {
         let (tx_sender, tx_receiver) = channel::<Message>();
         let (rx_sender, rx_receiver) = channel::<Message>();
 
-        // TODO: impl receiving thread
-        spawn(move || {
-            let listener = TcpListener::bind(host_addr).unwrap();
-            loop {
-                match listener.accept() {
-                    Ok((mut socket, _addr)) => {
-                        socket.set_read_timeout(None).unwrap();
-                        {
-                            let rx_sender = rx_sender.clone();
-                            spawn(move || loop {
-                                let msg = Message::deserialize_reader(&mut socket).unwrap();
-                                trace!(
-                                    "received msg from: {} {}",
-                                    _addr,
-                                    crate::crypto::publickey_to_base64(msg.0)
-                                );
-                                rx_sender.send(msg).unwrap();
-                            });
-                        }
-                    }
-                    Err(e) => error!("couldn't get client: {e:?}"),
-                }
-            }
-        });
-        {
-            // TODO: exception handle when connect
-            let peer_address = peer_address.clone();
-            spawn(move || {
-                let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
-                loop {
-                    let msg = tx_receiver.recv().unwrap();
-                    trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
-                    let mut stream = match connections.get(&msg.0) {
-                        Some(stream) => stream,
-                        None => {
-                            let addr = peer_address.read().unwrap().get(&msg.0).unwrap().clone();
-                            let stream = TcpStream::connect(addr).unwrap();
-                            stream.set_write_timeout(None).unwrap();
-                            connections.insert(msg.0.clone(), stream);
-                            connections.get(&msg.0).unwrap()
-                        }
-                    };
-                    let msg = Message(public_key, msg.1);
-                    stream.write(&msg.try_to_vec().unwrap()).unwrap();
-                }
-            });
-        }
+        spawn_listening_thread(host_addr, rx_sender);
+        spawn_sending_thread(tx_receiver, peer_address.clone(), public_key);
+
         Self {
             validator_set: Arc::new(RwLock::new(ValidatorSet::new())),
             peer_addresses: peer_address,
@@ -90,6 +46,59 @@ impl NetworkImpl {
             host_addr,
         }
     }
+}
+
+fn spawn_listening_thread(host_addr: SocketAddr, rx_sender: Sender<Message>) {
+    spawn(move || {
+        let listener = TcpListener::bind(host_addr).unwrap();
+        loop {
+            match listener.accept() {
+                Ok((socket, addr)) => {
+                    socket.set_read_timeout(None).unwrap();
+                    spawn_receiving_thread(socket, addr, rx_sender.clone());
+                }
+                Err(e) => error!("couldn't get client: {e:?}"),
+            }
+        }
+    });
+}
+
+fn spawn_receiving_thread(mut socket: TcpStream, _addr: SocketAddr, rx_sender: Sender<Message>) {
+    spawn(move || loop {
+        let msg = Message::deserialize_reader(&mut socket).unwrap();
+        trace!(
+            "received msg from: {} {}",
+            _addr,
+            crate::crypto::publickey_to_base64(msg.0)
+        );
+        rx_sender.send(msg).unwrap();
+    });
+}
+
+fn spawn_sending_thread(
+    tx_receiver: Receiver<Message>,
+    peer_address: Arc<RwLock<HashMap<PublicKeyBytes, SocketAddr>>>,
+    public_key: PublicKeyBytes,
+) {
+    spawn(move || {
+        let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
+        loop {
+            let msg = tx_receiver.recv().unwrap();
+            trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
+            let mut stream = match connections.get(&msg.0) {
+                Some(stream) => stream,
+                None => {
+                    let addr = peer_address.read().unwrap().get(&msg.0).unwrap().clone();
+                    let stream = TcpStream::connect(addr).unwrap();
+                    stream.set_write_timeout(None).unwrap();
+                    connections.insert(msg.0.clone(), stream);
+                    connections.get(&msg.0).unwrap()
+                }
+            };
+            let msg = Message(public_key, msg.1);
+            stream.write(&msg.try_to_vec().unwrap()).unwrap();
+        }
+    });
 }
 
 impl networking::Network for NetworkImpl {
