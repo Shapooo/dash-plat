@@ -11,7 +11,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use hotstuff_rs::types::{DalekKeypair, PublicKeyBytes};
 use log::debug;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -92,11 +92,11 @@ where
     Ok(Duration::from_millis(millisecs))
 }
 
-#[derive(Clone, Deserialize)]
-struct PeerConfig {
-    host_addr: SocketAddr,
-    #[serde(deserialize_with = "parse_pubkey")]
-    public_key: PublicKeyBytes,
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PeerConfig {
+    pub host_addr: SocketAddr,
+    #[serde(deserialize_with = "parse_pubkey", serialize_with = "serialize_pubkey")]
+    pub public_key: PublicKeyBytes,
 }
 
 fn parse_pubkey<'de, D>(d: D) -> Result<PublicKeyBytes, D::Error>
@@ -105,4 +105,11 @@ where
 {
     let pubkey: String = Deserialize::deserialize(d)?;
     Ok(crypto::publickey_from_base64(&pubkey).unwrap())
+}
+
+fn serialize_pubkey<S>(key: &PublicKeyBytes, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(&crypto::publickey_to_base64(*key))
 }
