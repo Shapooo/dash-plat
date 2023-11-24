@@ -1,12 +1,16 @@
 use crate::kv_store;
+
+use std::sync::mpsc::Receiver;
+
 use hotstuff_rs::app;
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AppImpl();
+pub struct AppImpl {
+    block_rx: Receiver<Vec<u8>>,
+}
 
 impl AppImpl {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(block_rx: Receiver<Vec<u8>>) -> Self {
+        Self { block_rx }
     }
 }
 
@@ -19,9 +23,13 @@ impl app::App<kv_store::KVStoreImpl> for AppImpl {
         &mut self,
         _request: app::ProduceBlockRequest<kv_store::KVStoreImpl>,
     ) -> app::ProduceBlockResponse {
+        let data = match self.block_rx.recv() {
+            Ok(data) => data,
+            Err(e) => panic!("{}", e),
+        };
         app::ProduceBlockResponse {
             data_hash: [0; 32],
-            data: Vec::new(),
+            data: vec![data],
             app_state_updates: None,
             validator_set_updates: None,
         }

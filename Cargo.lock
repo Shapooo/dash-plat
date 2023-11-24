@@ -308,6 +308,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dash-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "dash-common",
+ "log",
+ "serde",
+ "serde_yaml",
+ "simple_logger",
+]
+
+[[package]]
+name = "dash-common"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+]
+
+[[package]]
 name = "dash-node"
 version = "0.2.0"
 dependencies = [
@@ -316,6 +336,7 @@ dependencies = [
  "borsh",
  "bytes",
  "clap",
+ "dash-common",
  "ed25519",
  "ed25519-dalek",
  "futures",

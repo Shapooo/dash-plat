@@ -1,4 +1,8 @@
-use dash_node::{app, config::Config, kv_store::KVStoreImpl, network::NetworkImpl};
+use dash_node::{
+    app, client_handler::ClientHandler, config::Config, kv_store::KVStoreImpl, network::NetworkImpl,
+};
+
+use std::sync::mpsc::channel;
 
 use anyhow::Result;
 use clap::{Arg, Command};
@@ -35,7 +39,10 @@ fn main() -> Result<()> {
         Config::new()?
     };
 
-    let app = app::AppImpl::new();
+    let (block_tx, block_rx) = channel();
+    let app = app::AppImpl::new(block_rx);
+    let client_handler = ClientHandler::new(config.host_address, block_tx);
+    client_handler.run()?;
     let mut initial_validators = ValidatorSetUpdates::new();
 
     config.validators.iter().for_each(|pubkey| {
