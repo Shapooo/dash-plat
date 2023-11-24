@@ -1,5 +1,6 @@
 use dash_node::{app, config::Config, kv_store::KVStoreImpl, network::NetworkImpl};
 
+use anyhow::Result;
 use clap::{Arg, Command};
 use hotstuff_rs::{
     pacemaker::DefaultPacemaker,
@@ -9,12 +10,11 @@ use hotstuff_rs::{
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 
-fn main() {
+fn main() -> Result<()> {
     SimpleLogger::new()
         .with_level(LevelFilter::Debug)
         .env()
-        .init()
-        .unwrap();
+        .init()?;
     let args = Command::new("dash-node")
         .about("Validator node for dash.")
         .version("0.1.0")
@@ -30,9 +30,9 @@ fn main() {
         )
         .get_matches();
     let config = if let Some(path) = args.get_one::<String>("config") {
-        Config::from_path(path).unwrap()
+        Config::from_path(path)?
     } else {
-        Config::new().unwrap()
+        Config::new()?
     };
 
     let app = app::AppImpl::new();
