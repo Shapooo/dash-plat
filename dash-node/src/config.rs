@@ -45,9 +45,9 @@ impl Config {
         let config_path = config_dir.as_ref().join("config.yaml");
         let peers_dir = config_dir.as_ref().join("peers");
         let seckey_path = config_dir.as_ref().join("sec_key");
-        let config_str = read_to_string(config_path).unwrap();
+        let config_str = read_to_string(config_path).expect("Cannot read config.yaml!");
         let mut res = serde_yaml::from_str::<Config>(&config_str)?;
-        let pem = read_to_string(&seckey_path).unwrap();
+        let pem = read_to_string(&seckey_path).expect("Cannot read sec_key file!");
         let keypair = crypto::keypair_from_pem(&pem)?;
         debug!(
             "my pubkey is {}",
@@ -66,16 +66,21 @@ impl Config {
     }
 
     fn load_peers(&mut self, peers_dir: PathBuf) {
-        let confs_entry: Result<Vec<_>, _> = read_dir(&peers_dir).unwrap().into_iter().collect();
+        let confs_entry: Result<Vec<_>, _> = read_dir(&peers_dir)
+            .expect("Cannot access peers directory!")
+            .into_iter()
+            .collect();
         self.peer_addresses = confs_entry
-            .unwrap()
+            .expect("Cannot access peers directory!")
             .into_iter()
             .filter_map(|entry| {
                 if entry.path().is_file() {
-                    let mut f = File::open(entry.path()).unwrap();
+                    let mut f = File::open(entry.path()).expect("Cannot open the peer config!");
                     let mut buf = String::new();
-                    f.read_to_string(&mut buf).unwrap();
-                    let conf = serde_yaml::from_str::<PeerConfig>(&buf).unwrap();
+                    f.read_to_string(&mut buf)
+                        .expect("Cannot read the peer config!");
+                    let conf = serde_yaml::from_str::<PeerConfig>(&buf)
+                        .expect("Parse the peer config failed!");
                     Some((conf.public_key, conf.host_addr))
                 } else {
                     None
@@ -106,7 +111,7 @@ where
     D: Deserializer<'de>,
 {
     let pubkey: String = Deserialize::deserialize(d)?;
-    Ok(crypto::publickey_from_base64(&pubkey).unwrap())
+    Ok(crypto::publickey_from_base64(&pubkey).expect("Parse public key from base64 failed!"))
 }
 
 fn serialize_pubkey<S>(key: &PublicKeyBytes, s: S) -> Result<S::Ok, S::Error>
