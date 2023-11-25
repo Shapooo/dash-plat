@@ -15,29 +15,8 @@ use log::LevelFilter;
 use simple_logger::SimpleLogger;
 
 fn main() -> Result<()> {
-    SimpleLogger::new()
-        .with_level(LevelFilter::Debug)
-        .env()
-        .init()?;
-    let args = Command::new("dash-node")
-        .about("Validator node for dash.")
-        .version("0.1.0")
-        .arg(
-            Arg::new("config")
-                .short('c')
-                .long("config_dir")
-                .action(clap::ArgAction::Set)
-                .help(
-                    "set config directory, defaults to `config/' \
-                     in the same directory as dash-node binary",
-                ),
-        )
-        .get_matches();
-    let config = if let Some(path) = args.get_one::<String>("config") {
-        Config::from_path(path)?
-    } else {
-        Config::new()?
-    };
+    init_logger()?;
+    let config = init_config()?;
 
     let (block_tx, block_rx) = channel();
     let app = app::AppImpl::new(block_rx);
@@ -69,5 +48,35 @@ fn main() -> Result<()> {
     let _replica = Replica::start(app, keypair, network, kv_store, pacemaker);
     loop {
         std::thread::sleep(std::time::Duration::from_secs(10));
+    }
+}
+
+fn init_logger() -> Result<()> {
+    SimpleLogger::new()
+        .with_level(LevelFilter::Debug)
+        .env()
+        .init()?;
+    Ok(())
+}
+
+fn init_config() -> Result<Config> {
+    let args = Command::new("dash-node")
+        .about("Validator node for dash.")
+        .version("0.1.0")
+        .arg(
+            Arg::new("config")
+                .short('c')
+                .long("config_dir")
+                .action(clap::ArgAction::Set)
+                .help(
+                    "set config directory, defaults to `config/' \
+                     in the same directory as dash-node binary",
+                ),
+        )
+        .get_matches();
+    if let Some(path) = args.get_one::<String>("config") {
+        Config::from_path(path)
+    } else {
+        Config::new()
     }
 }
