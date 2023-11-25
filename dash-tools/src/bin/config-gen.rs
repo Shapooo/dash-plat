@@ -9,7 +9,6 @@ use std::{fs::OpenOptions, time::Duration};
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
-use serde_yaml;
 
 #[derive(Debug, Parser)]
 #[command(

@@ -2,17 +2,11 @@ use hotstuff_rs::state;
 use std::collections::{hash_map, hash_set, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct KVStoreImpl(Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>);
 
 impl KVStoreImpl {
     pub fn new() -> Self {
-        Self(Default::default())
-    }
-}
-
-impl Default for KVStoreImpl {
-    fn default() -> Self {
         Self(Default::default())
     }
 }
@@ -45,20 +39,19 @@ impl state::KVStore for KVStoreImpl {
         map.clear();
     }
 
-    fn snapshot<'b>(&'b self) -> Self::Snapshot<'_> {
+    fn snapshot(&self) -> Self::Snapshot<'_> {
         SnapshotImpl(self.0.clone())
     }
 }
 
+type WriteBatchIterPair = (
+    hash_map::IntoIter<Vec<u8>, Vec<u8>>,
+    hash_set::IntoIter<Vec<u8>>,
+);
 pub struct WriteBatchImpl(HashMap<Vec<u8>, Vec<u8>>, HashSet<Vec<u8>>);
 
 impl WriteBatchImpl {
-    pub fn consume(
-        self,
-    ) -> (
-        hash_map::IntoIter<Vec<u8>, Vec<u8>>,
-        hash_set::IntoIter<Vec<u8>>,
-    ) {
+    pub fn consume(self) -> WriteBatchIterPair {
         (self.0.into_iter(), self.1.into_iter())
     }
 }

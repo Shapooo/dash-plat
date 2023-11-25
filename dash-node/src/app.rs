@@ -1,17 +1,12 @@
 use crate::kv_store;
 use hotstuff_rs::app;
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct AppImpl();
 
 impl AppImpl {
     pub fn new() -> Self {
         Self {}
-    }
-}
-
-impl Default for AppImpl {
-    fn default() -> Self {
-        Self()
     }
 }
 

@@ -88,17 +88,17 @@ fn spawn_sending_thread(
             let stream = match connections.get(&msg.0) {
                 Some(stream) => Some(stream),
                 None => {
-                    let addr = peer_addresses.get(&msg.0).unwrap().clone();
+                    let addr = *peer_addresses.get(&msg.0).unwrap();
                     TcpStream::connect(addr).ok().and_then(|stream| {
                         stream.set_write_timeout(None).unwrap();
-                        connections.insert(msg.0.clone(), stream);
+                        connections.insert(msg.0, stream);
                         connections.get(&msg.0)
                     })
                 }
             };
             if let Some(mut stream) = stream {
                 let msg = Message(public_key, msg.1);
-                stream.write(&msg.try_to_vec().unwrap()).unwrap();
+                stream.write_all(&msg.try_to_vec().unwrap()).unwrap();
             }
         }
     });
@@ -134,12 +134,12 @@ impl networking::Network for NetworkImpl {
         let chan = match self.rx_receiver.try_lock() {
             Ok(chan) => chan,
             Err(TryLockError::WouldBlock) => return None,
-            Err(e) => Err(e).unwrap(),
+            Err(e) => panic!("{:?}", e),
         };
         match chan.try_recv() {
             Ok(msg) => Some((msg.0, msg.1)),
             Err(TryRecvError::Empty) => None,
-            Err(e) => Err(e).unwrap(),
+            Err(e) => panic!("{:?}", e),
         }
     }
 }

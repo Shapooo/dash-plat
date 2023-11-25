@@ -47,7 +47,7 @@ impl Config {
         let seckey_path = config_dir.as_ref().join("sec_key");
         let config_str = read_to_string(config_path).expect("Cannot read config.yaml!");
         let mut res = serde_yaml::from_str::<Config>(&config_str)?;
-        let pem = read_to_string(&seckey_path).expect("Cannot read sec_key file!");
+        let pem = read_to_string(seckey_path).expect("Cannot read sec_key file!");
         let keypair = crypto::keypair_from_pem(&pem)?;
         debug!(
             "my pubkey is {}",
@@ -66,9 +66,8 @@ impl Config {
     }
 
     fn load_peers(&mut self, peers_dir: PathBuf) {
-        let confs_entry: Result<Vec<_>, _> = read_dir(&peers_dir)
+        let confs_entry: Result<Vec<_>, _> = read_dir(peers_dir)
             .expect("Cannot access peers directory!")
-            .into_iter()
             .collect();
         self.peer_addresses = confs_entry
             .expect("Cannot access peers directory!")
@@ -125,5 +124,5 @@ fn serialize_milliseconds<S>(duration: &Duration, s: S) -> Result<S::Ok, S::Erro
 where
     S: serde::Serializer,
 {
-    s.serialize_u128(duration.as_millis() as u128)
+    s.serialize_u128(duration.as_millis())
 }

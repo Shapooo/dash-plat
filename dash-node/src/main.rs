@@ -39,7 +39,7 @@ fn main() -> Result<()> {
     let mut initial_validators = ValidatorSetUpdates::new();
 
     config.validators.iter().for_each(|pubkey| {
-        initial_validators.insert(pubkey.clone(), 1);
+        initial_validators.insert(*pubkey, 1);
     });
 
     let kv_store = KVStoreImpl::default();
@@ -58,5 +58,7 @@ fn main() -> Result<()> {
         config.sync_response_timeout,
     );
     let _replica = Replica::start(app, keypair, network, kv_store, pacemaker);
-    loop {}
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+    }
 }
