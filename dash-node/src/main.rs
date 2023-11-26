@@ -5,7 +5,7 @@ use dash_node::{
 use std::sync::mpsc::channel;
 
 use anyhow::Result;
-use clap::{Arg, Command};
+use clap::Arg;
 use hotstuff_rs::{
     pacemaker::DefaultPacemaker,
     replica::Replica,
@@ -60,9 +60,7 @@ fn init_logger() -> Result<()> {
 }
 
 fn init_config() -> Result<Config> {
-    let args = Command::new("dash-node")
-        .about("Validator node for dash.")
-        .version("0.1.0")
+    let args = clap::command!()
         .arg(
             Arg::new("config")
                 .short('c')

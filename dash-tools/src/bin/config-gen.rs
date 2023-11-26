@@ -11,12 +11,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(
-    name = "config-gen",
-    version = "0.1.0",
-    author = "Shapooo",
-    about = "Generate config/keypair files"
-)]
+#[command(version, author, about = "Generate config/keypair files")]
 struct Cli {
     /// Number of cnofig/keypairs to generate
     #[arg(short, long, default_value = "4")]

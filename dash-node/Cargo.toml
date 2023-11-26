@@ -2,6 +2,7 @@
 name = "dash-node"
 version = "0.2.0"
 authors = ["Shapooo <shabojia@outlook.com>"]
+description = "Validator node for dash."
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,7 +12,7 @@ anyhow = "1.0.75"
 base64 = "0.21.5"
 borsh = "0.10"
 bytes = "1.5.0"
-clap = "4.4.8"
+clap = { version = "4.4.8", features = ["cargo"] }
 ed25519 = { version = "1.5.3", features = ["pkcs8", "alloc", "pem"] }
 ed25519-dalek = "1"
 futures = "0.3.29"
