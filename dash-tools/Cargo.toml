@@ -1,6 +1,8 @@
 [package]
 name = "dash-tools"
 version = "0.1.0"
+authors = ["Shapooo <shabojia@outlook.com>"]
+description = "Useful tools for dash"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
