@@ -45,7 +45,9 @@ fn main() -> Result<()> {
     let kv_store = KVStoreImpl::default();
 
     Replica::initialize(kv_store.clone(), AppStateUpdates::new(), initial_validators);
-    let keypair = config.my_keypair.unwrap();
+    let keypair = config
+        .my_keypair
+        .expect("FATAL: my keypair not initialized!");
     let network = NetworkImpl::new(
         config.peer_addresses,
         config.host_address,
