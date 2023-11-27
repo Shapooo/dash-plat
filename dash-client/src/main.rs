@@ -1,34 +1,41 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-use dash_common::BlockMsg;
-
-use std::env::current_exe;
-use std::fs::File;
-use std::io::Read;
-use std::net::SocketAddr;
+use dash_client::{client::Client, config::Config};
 
 use anyhow::Result;
-use serde::Deserialize;
+use clap::Arg;
+use log::LevelFilter;
+use simple_logger::SimpleLogger;
 
 fn main() -> Result<()> {
-    let config = get_config()?;
+    init_logger()?;
+    let config = init_config()?;
+    Client::new(config)?.run()?;
     Ok(())
 }
 
-fn get_config() -> Result<Config> {
-    let config_path = current_exe()?.parent().unwrap().join("config.yaml");
-    let mut config_file = File::open(config_path)?;
-    let mut config_str = String::new();
-    config_file.read_to_string(&mut config_str)?;
-    let config: Config = serde_yaml::from_str(&config_str)?;
-    Ok(config)
+fn init_logger() -> Result<()> {
+    SimpleLogger::new()
+        .with_level(LevelFilter::Debug)
+        .env()
+        .init()?;
+    Ok(())
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct Config {
-    peers: Vec<SocketAddr>,
-    blocks_per_min: u64,
+fn init_config() -> Result<Config> {
+    let args = clap::command!()
+        .arg(
+            Arg::new("config")
+                .short('c')
+                .long("config_path")
+                .action(clap::ArgAction::Set)
+                .help(
+                    "set config file path, defaults to `client_config.yaml' \
+                     in the same directory as dash-client binary",
+                ),
+        )
+        .get_matches();
+    if let Some(path) = args.get_one::<String>("config") {
+        Config::from_path(path)
+    } else {
+        Config::new()
+    }
 }
-
-struct BlockGen {}
-
-struct Network {}
