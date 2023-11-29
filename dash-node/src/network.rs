@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, RwLock, TryLockError};
-use std::thread::spawn;
+use std::thread;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
@@ -35,71 +35,93 @@ impl NetworkImpl {
         host_addr: SocketAddr,
         public_key: PublicKeyBytes,
     ) -> Self {
-        let peer_address = Arc::new(initial_peers);
-        let (tx_sender, tx_receiver) = channel::<Message>(1000);
-        let (rx_sender, rx_receiver) = channel::<Message>(1000);
+        let peer_addresses = Arc::new(initial_peers);
 
-        let res = Self {
+        let (tx_sender, rx_receiver) =
+            NetworkDispatcher::spawn(host_addr, peer_addresses.clone(), public_key);
+
+        Self {
             validator_set: Arc::new(RwLock::new(ValidatorSet::new())),
-            peer_addresses: peer_address.clone(),
+            peer_addresses,
             tx_sender,
             rx_receiver: Arc::new(Mutex::new(rx_receiver)),
             host_addr,
-        };
-
-        spawn(move || {
-            let rt = Builder::new_current_thread().enable_all().build().unwrap();
-            rt.block_on(async move {
-                spawn_working_threads(host_addr, rx_sender, tx_receiver, peer_address, public_key)
-                    .await;
-            });
-        });
-        res
+        }
     }
 }
 
-async fn spawn_working_threads(
+struct NetworkDispatcher {
     host_addr: SocketAddr,
     rx_sender: Sender<Message>,
-    mut tx_receiver: Receiver<Message>,
+    tx_receiver: Receiver<Message>,
     peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
     public_key: PublicKeyBytes,
-) {
-    // spawn listening thread
-    tokio::spawn(async move {
-        let listener = TcpListener::bind(host_addr)
-            .await
-            .expect("Failed to bind TCP port!");
-        loop {
-            match listener.accept().await {
-                Ok((socket, addr)) => {
-                    trace!("accept connection from {}", addr);
-                    ReceivingWorker::spawn(addr, socket, rx_sender.clone());
-                }
-                Err(e) => error!("couldn't get client: {e:?}"),
-            }
-        }
-    });
+}
 
-    // looping sending msg
-    let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
-    while let Some(msg) = tx_receiver.recv().await {
-        trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
-        let stream = match connections.get_mut(&msg.0) {
-            Some(stream) => Some(stream),
-            None => {
-                let addr = *peer_addresses.get(&msg.0).unwrap();
-                TcpStream::connect(addr).await.ok().and_then(|stream| {
-                    connections.insert(msg.0, stream);
-                    connections.get_mut(&msg.0)
-                })
+impl NetworkDispatcher {
+    fn spawn(
+        host_addr: SocketAddr,
+        peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
+        public_key: PublicKeyBytes,
+    ) -> (Sender<Message>, Receiver<Message>) {
+        let (tx_sender, tx_receiver) = channel::<Message>(1000);
+        let (rx_sender, rx_receiver) = channel::<Message>(1000);
+        thread::spawn(move || {
+            let rt = Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(async move {
+                Self {
+                    host_addr,
+                    rx_sender,
+                    tx_receiver,
+                    peer_addresses,
+                    public_key,
+                }
+                .run()
+                .await
+            });
+        });
+        (tx_sender, rx_receiver)
+    }
+
+    async fn run(&mut self) {
+        // spawn listening thread
+        let host_addr = self.host_addr;
+        let rx_sender = self.rx_sender.clone();
+        tokio::spawn(async move {
+            let listener = TcpListener::bind(host_addr)
+                .await
+                .expect("Failed to bind TCP port!");
+            loop {
+                match listener.accept().await {
+                    Ok((socket, addr)) => {
+                        trace!("accept connection from {}", addr);
+                        ReceivingWorker::spawn(addr, socket, rx_sender.clone());
+                    }
+                    Err(e) => error!("couldn't get client: {e:?}"),
+                }
             }
-        };
-        if let Some(stream) = stream {
-            let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
-            let msg = Message(public_key, msg.1);
-            let msg_bytes: Bytes = msg.try_to_vec().unwrap().into();
-            writer.send(msg_bytes).await.unwrap();
+        });
+
+        // looping sending msg
+        let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
+        while let Some(msg) = self.tx_receiver.recv().await {
+            trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
+            let stream = match connections.get_mut(&msg.0) {
+                Some(stream) => Some(stream),
+                None => {
+                    let addr = *self.peer_addresses.get(&msg.0).unwrap();
+                    TcpStream::connect(addr).await.ok().and_then(|stream| {
+                        connections.insert(msg.0, stream);
+                        connections.get_mut(&msg.0)
+                    })
+                }
+            };
+            if let Some(stream) = stream {
+                let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
+                let msg = Message(self.public_key, msg.1);
+                let msg_bytes: Bytes = msg.try_to_vec().unwrap().into();
+                writer.send(msg_bytes).await.unwrap();
+            }
         }
     }
 }
