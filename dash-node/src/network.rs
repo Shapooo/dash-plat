@@ -50,15 +50,22 @@ impl NetworkImpl {
         spawn(move || {
             let rt = Builder::new_current_thread().enable_all().build().unwrap();
             rt.block_on(async move {
-                spawn_listening_thread(host_addr, rx_sender);
-                spawn_sending_thread(tx_receiver, peer_address, public_key).await;
+                spawn_working_threads(host_addr, rx_sender, tx_receiver, peer_address, public_key)
+                    .await;
             });
         });
         res
     }
 }
 
-fn spawn_listening_thread(host_addr: SocketAddr, rx_sender: Sender<Message>) {
+async fn spawn_working_threads(
+    host_addr: SocketAddr,
+    rx_sender: Sender<Message>,
+    mut tx_receiver: Receiver<Message>,
+    peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
+    public_key: PublicKeyBytes,
+) {
+    // spawn listening thread
     tokio::spawn(async move {
         let listener = TcpListener::bind(host_addr)
             .await
@@ -66,44 +73,16 @@ fn spawn_listening_thread(host_addr: SocketAddr, rx_sender: Sender<Message>) {
         loop {
             match listener.accept().await {
                 Ok((socket, addr)) => {
-                    trace!("acc {}", addr);
-                    spawn_receiving_thread(socket, addr, rx_sender.clone());
+                    trace!("accept connection from {}", addr);
+                    ReceivingWorker::spawn(addr, socket, rx_sender.clone());
                 }
                 Err(e) => error!("couldn't get client: {e:?}"),
             }
         }
     });
-}
 
-fn spawn_receiving_thread(socket: TcpStream, _addr: SocketAddr, rx_sender: Sender<Message>) {
-    let mut reader = Framed::new(socket, LengthDelimitedCodec::new());
-    tokio::spawn(async move {
-        while let Some(raw_msg) = reader.next().await {
-            match raw_msg {
-                Ok(msg_bytes) => match Message::deserialize(&mut msg_bytes.as_ref()) {
-                    Ok(msg) => {
-                        trace!(
-                            "received msg from: {} {}",
-                            _addr,
-                            crate::crypto::publickey_to_base64(msg.0)
-                        );
-                        rx_sender.send(msg).await.unwrap()
-                    }
-                    Err(e) => error!("{}", e),
-                },
-                Err(e) => error!("{}", e),
-            };
-        }
-    });
-}
-
-async fn spawn_sending_thread(
-    mut tx_receiver: Receiver<Message>,
-    peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
-    public_key: PublicKeyBytes,
-) {
+    // looping sending msg
     let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
-
     while let Some(msg) = tx_receiver.recv().await {
         trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
         let stream = match connections.get_mut(&msg.0) {
@@ -120,8 +99,47 @@ async fn spawn_sending_thread(
             let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
             let msg = Message(public_key, msg.1);
             let msg_bytes: Bytes = msg.try_to_vec().unwrap().into();
-            trace!("{}", &msg_bytes.len());
             writer.send(msg_bytes).await.unwrap();
+        }
+    }
+}
+
+struct ReceivingWorker {
+    sender: Sender<Message>,
+    remote_addr: SocketAddr,
+    framed_reader: Framed<TcpStream, LengthDelimitedCodec>,
+}
+
+impl ReceivingWorker {
+    fn spawn(remote_addr: SocketAddr, socket: TcpStream, sender: Sender<Message>) {
+        let reader = Framed::new(socket, LengthDelimitedCodec::new());
+        tokio::spawn(async move {
+            Self {
+                sender,
+                remote_addr,
+                framed_reader: reader,
+            }
+            .run()
+            .await
+        });
+    }
+
+    async fn run(&mut self) {
+        while let Some(raw_msg) = self.framed_reader.next().await {
+            match raw_msg {
+                Ok(msg_bytes) => match Message::deserialize(&mut msg_bytes.as_ref()) {
+                    Ok(msg) => {
+                        trace!(
+                            "received msg from: {} {}",
+                            self.remote_addr,
+                            crate::crypto::publickey_to_base64(msg.0)
+                        );
+                        self.sender.send(msg).await.unwrap()
+                    }
+                    Err(e) => error!("{}", e),
+                },
+                Err(e) => error!("{}", e),
+            };
         }
     }
 }
