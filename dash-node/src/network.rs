@@ -1,19 +1,23 @@
 use std::collections::HashMap;
-use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{
-    mpsc::{channel, Receiver, Sender, TryRecvError},
-    Arc, Mutex, RwLock, TryLockError,
-};
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex, RwLock, TryLockError};
 use std::thread::spawn;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytes::Bytes;
+use futures::{SinkExt, StreamExt};
 use hotstuff_rs::{
     messages::Message as HsMessage,
     networking,
     types::{PublicKeyBytes, ValidatorSet, ValidatorSetUpdates},
 };
 use log::{error, trace};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    runtime::Builder,
+    sync::mpsc::{channel, error::TryRecvError, Receiver, Sender},
+};
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -32,29 +36,37 @@ impl NetworkImpl {
         public_key: PublicKeyBytes,
     ) -> Self {
         let peer_address = Arc::new(initial_peers);
-        let (tx_sender, tx_receiver) = channel::<Message>();
-        let (rx_sender, rx_receiver) = channel::<Message>();
+        let (tx_sender, tx_receiver) = channel::<Message>(1000);
+        let (rx_sender, rx_receiver) = channel::<Message>(1000);
 
-        spawn_listening_thread(host_addr, rx_sender);
-        spawn_sending_thread(tx_receiver, peer_address.clone(), public_key);
-
-        Self {
+        let res = Self {
             validator_set: Arc::new(RwLock::new(ValidatorSet::new())),
-            peer_addresses: peer_address,
+            peer_addresses: peer_address.clone(),
             tx_sender,
             rx_receiver: Arc::new(Mutex::new(rx_receiver)),
             host_addr,
-        }
+        };
+
+        spawn(move || {
+            let rt = Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(async move {
+                spawn_listening_thread(host_addr, rx_sender);
+                spawn_sending_thread(tx_receiver, peer_address, public_key).await;
+            });
+        });
+        res
     }
 }
 
 fn spawn_listening_thread(host_addr: SocketAddr, rx_sender: Sender<Message>) {
-    spawn(move || {
-        let listener = TcpListener::bind(host_addr).unwrap();
+    tokio::spawn(async move {
+        let listener = TcpListener::bind(host_addr)
+            .await
+            .expect("Failed to bind TCP port!");
         loop {
-            match listener.accept() {
+            match listener.accept().await {
                 Ok((socket, addr)) => {
-                    socket.set_read_timeout(None).unwrap();
+                    trace!("acc {}", addr);
                     spawn_receiving_thread(socket, addr, rx_sender.clone());
                 }
                 Err(e) => error!("couldn't get client: {e:?}"),
@@ -63,45 +75,55 @@ fn spawn_listening_thread(host_addr: SocketAddr, rx_sender: Sender<Message>) {
     });
 }
 
-fn spawn_receiving_thread(mut socket: TcpStream, _addr: SocketAddr, rx_sender: Sender<Message>) {
-    spawn(move || loop {
-        let msg = Message::deserialize_reader(&mut socket).unwrap();
-        trace!(
-            "received msg from: {} {}",
-            _addr,
-            crate::crypto::publickey_to_base64(msg.0)
-        );
-        rx_sender.send(msg).unwrap();
+fn spawn_receiving_thread(socket: TcpStream, _addr: SocketAddr, rx_sender: Sender<Message>) {
+    let mut reader = Framed::new(socket, LengthDelimitedCodec::new());
+    tokio::spawn(async move {
+        while let Some(raw_msg) = reader.next().await {
+            match raw_msg {
+                Ok(msg_bytes) => match Message::deserialize(&mut msg_bytes.as_ref()) {
+                    Ok(msg) => {
+                        trace!(
+                            "received msg from: {} {}",
+                            _addr,
+                            crate::crypto::publickey_to_base64(msg.0)
+                        );
+                        rx_sender.send(msg).await.unwrap()
+                    }
+                    Err(e) => error!("{}", e),
+                },
+                Err(e) => error!("{}", e),
+            };
+        }
     });
 }
 
-fn spawn_sending_thread(
-    tx_receiver: Receiver<Message>,
+async fn spawn_sending_thread(
+    mut tx_receiver: Receiver<Message>,
     peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
     public_key: PublicKeyBytes,
 ) {
-    spawn(move || {
-        let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
-        loop {
-            let msg = tx_receiver.recv().unwrap();
-            trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
-            let stream = match connections.get(&msg.0) {
-                Some(stream) => Some(stream),
-                None => {
-                    let addr = *peer_addresses.get(&msg.0).unwrap();
-                    TcpStream::connect(addr).ok().and_then(|stream| {
-                        stream.set_write_timeout(None).unwrap();
-                        connections.insert(msg.0, stream);
-                        connections.get(&msg.0)
-                    })
-                }
-            };
-            if let Some(mut stream) = stream {
-                let msg = Message(public_key, msg.1);
-                stream.write_all(&msg.try_to_vec().unwrap()).unwrap();
+    let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
+
+    while let Some(msg) = tx_receiver.recv().await {
+        trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
+        let stream = match connections.get_mut(&msg.0) {
+            Some(stream) => Some(stream),
+            None => {
+                let addr = *peer_addresses.get(&msg.0).unwrap();
+                TcpStream::connect(addr).await.ok().and_then(|stream| {
+                    connections.insert(msg.0, stream);
+                    connections.get_mut(&msg.0)
+                })
             }
+        };
+        if let Some(stream) = stream {
+            let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
+            let msg = Message(public_key, msg.1);
+            let msg_bytes: Bytes = msg.try_to_vec().unwrap().into();
+            trace!("{}", &msg_bytes.len());
+            writer.send(msg_bytes).await.unwrap();
         }
-    });
+    }
 }
 
 impl networking::Network for NetworkImpl {
@@ -127,11 +149,13 @@ impl networking::Network for NetworkImpl {
     }
 
     fn send(&mut self, peer: PublicKeyBytes, message: HsMessage) {
-        self.tx_sender.send(Message(peer, message)).unwrap();
+        self.tx_sender
+            .blocking_send(Message(peer, message))
+            .unwrap();
     }
 
     fn recv(&mut self) -> Option<(PublicKeyBytes, HsMessage)> {
-        let chan = match self.rx_receiver.try_lock() {
+        let mut chan = match self.rx_receiver.try_lock() {
             Ok(chan) => chan,
             Err(TryLockError::WouldBlock) => return None,
             Err(e) => panic!("{:?}", e),
