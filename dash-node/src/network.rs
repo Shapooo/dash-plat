@@ -112,20 +112,23 @@ impl NetworkDispatcher {
             .iter()
             .map(|(key, addr)| (*key, SendingWorker::spawn(*addr, self.public_key)))
             .collect::<HashMap<_, _>>();
-        while let Some(msg) = self.tx_receiver.recv().await {
-            trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
-            if msg.0 == self.public_key {
+        while let Some(request) = self.tx_receiver.recv().await {
+            trace!(
+                "send msg to {}",
+                crate::crypto::publickey_to_base64(request.0)
+            );
+            if request.0 == self.public_key {
                 self.rx_sender
-                    .send(ReceiveResponse(msg.0, msg.1))
+                    .send(ReceiveResponse(request.0, request.1))
                     .await
                     .unwrap();
                 continue;
             }
-            let sender = senders.entry(msg.0).or_insert_with(|| {
-                let addr = *self.peer_addresses.get(&msg.0).unwrap();
+            let sender = senders.entry(request.0).or_insert_with(|| {
+                let addr = *self.peer_addresses.get(&request.0).unwrap();
                 SendingWorker::spawn(addr, self.public_key)
             });
-            sender.send(msg).await.unwrap();
+            sender.send(request).await.unwrap();
         }
     }
 }
@@ -151,17 +154,17 @@ impl ReceivingWorker {
     }
 
     async fn run(&mut self) {
-        while let Some(raw_msg) = self.framed_reader.next().await {
-            match raw_msg {
+        while let Some(framed_msg) = self.framed_reader.next().await {
+            match framed_msg {
                 Ok(msg_bytes) => match Message::deserialize(&mut msg_bytes.as_ref()) {
                     Ok(msg) => {
                         trace!(
                             "received msg from: {} {}",
                             self.remote_addr,
-                            crate::crypto::publickey_to_base64(msg.0)
+                            crate::crypto::publickey_to_base64(msg.from)
                         );
                         self.sender
-                            .send(ReceiveResponse(msg.0, msg.1))
+                            .send(ReceiveResponse(msg.from, msg.data))
                             .await
                             .unwrap()
                     }
@@ -233,8 +236,8 @@ impl SendingWorker {
 
                             // Drain the channel into the buffer to not saturate the channel and block the caller task.
                             // The caller is responsible to cleanup the buffer through the cancel handlers.
-                            Some(msg) = self.receiver.recv() => {
-                                self.buffer.push_back(msg);
+                            Some(request) = self.receiver.recv() => {
+                                self.buffer.push_back(request);
                                 if self.buffer.len() > 1000 {
                                     warn!("400 msg droped");
                                     self.buffer.drain(0..400);
@@ -250,13 +253,25 @@ impl SendingWorker {
     async fn keep_alive(&mut self, stream: TcpStream) -> Result<()> {
         let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
         loop {
-            while let Some(msg) = self.buffer.pop_front() {
-                let msg_bytes: Bytes = Message(self.my_pubkey, msg.1).try_to_vec()?.into();
+            while let Some(SendRequest(to, data)) = self.buffer.pop_front() {
+                let msg_bytes: Bytes = Message {
+                    from: self.my_pubkey,
+                    to,
+                    data,
+                }
+                .try_to_vec()?
+                .into();
                 trace!("send msg to {} in keep_alive", self.remote_addr);
                 writer.send(msg_bytes).await?;
             }
-            while let Some(msg) = self.receiver.recv().await {
-                let msg_bytes: Bytes = Message(self.my_pubkey, msg.1).try_to_vec()?.into();
+            while let Some(SendRequest(to, data)) = self.receiver.recv().await {
+                let msg_bytes: Bytes = Message {
+                    from: self.my_pubkey,
+                    to,
+                    data,
+                }
+                .try_to_vec()?
+                .into();
                 trace!("send msg to {} in keep_alive", self.remote_addr);
                 writer.send(msg_bytes).await?;
             }
@@ -299,7 +314,7 @@ impl networking::Network for NetworkImpl {
             Err(e) => panic!("{:?}", e),
         };
         match chan.try_recv() {
-            Ok(msg) => Some((msg.0, msg.1)),
+            Ok(ReceiveResponse(from, data)) => Some((from, data)),
             Err(TryRecvError::Empty) => None,
             Err(e) => panic!("{:?}", e),
         }
@@ -312,7 +327,11 @@ struct ReceiveResponse(PublicKeyBytes, InnerMessage);
 
 // TODO: add Signature
 #[derive(BorshDeserialize, BorshSerialize)]
-struct Message(PublicKeyBytes, InnerMessage);
+struct Message {
+    from: PublicKeyBytes,
+    to: PublicKeyBytes,
+    data: InnerMessage,
+}
 
 #[cfg(test)]
 mod network_test {
