@@ -114,6 +114,10 @@ impl NetworkDispatcher {
             .collect();
         while let Some(msg) = self.tx_receiver.recv().await {
             trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
+            if msg.0 == self.public_key {
+                self.rx_sender.send(msg).await.unwrap();
+                continue;
+            }
             let sender = senders.entry(msg.0).or_insert_with(|| {
                 let addr = *self.peer_addresses.get(&msg.0).unwrap();
                 SendingWorker::spawn(addr)
