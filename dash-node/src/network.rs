@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use hotstuff_rs::{
-    messages::Message as HsMessage,
+    messages::Message as InnerMessage,
     networking,
     types::{PublicKeyBytes, ValidatorSet, ValidatorSetUpdates},
 };
@@ -27,8 +27,8 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 pub struct NetworkImpl {
     validator_set: Arc<RwLock<ValidatorSet>>,
     peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
-    tx_sender: Sender<Message>,
-    rx_receiver: Arc<Mutex<Receiver<Message>>>,
+    tx_sender: Sender<SendRequest>,
+    rx_receiver: Arc<Mutex<Receiver<ReceiveResponse>>>,
     host_addr: SocketAddr,
 }
 
@@ -56,8 +56,8 @@ impl NetworkImpl {
 #[allow(dead_code)]
 struct NetworkDispatcher {
     host_addr: SocketAddr,
-    rx_sender: Sender<Message>,
-    tx_receiver: Receiver<Message>,
+    rx_sender: Sender<ReceiveResponse>,
+    tx_receiver: Receiver<SendRequest>,
     peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
     public_key: PublicKeyBytes,
 }
@@ -67,9 +67,9 @@ impl NetworkDispatcher {
         host_addr: SocketAddr,
         peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
         public_key: PublicKeyBytes,
-    ) -> (Sender<Message>, Receiver<Message>) {
-        let (tx_sender, tx_receiver) = channel::<Message>(1000);
-        let (rx_sender, rx_receiver) = channel::<Message>(1000);
+    ) -> (Sender<SendRequest>, Receiver<ReceiveResponse>) {
+        let (tx_sender, tx_receiver) = channel::<SendRequest>(1000);
+        let (rx_sender, rx_receiver) = channel::<ReceiveResponse>(1000);
         thread::spawn(move || {
             let rt = Builder::new_current_thread().enable_all().build().unwrap();
             rt.block_on(async move {
@@ -107,35 +107,37 @@ impl NetworkDispatcher {
         });
 
         // looping sending msg
-        let mut senders: HashMap<PublicKeyBytes, _> = self
+        let mut senders = self
             .peer_addresses
             .iter()
-            .map(|(key, addr)| (*key, SendingWorker::spawn(*addr)))
-            .collect();
+            .map(|(key, addr)| (*key, SendingWorker::spawn(*addr, self.public_key)))
+            .collect::<HashMap<_, _>>();
         while let Some(msg) = self.tx_receiver.recv().await {
             trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
             if msg.0 == self.public_key {
-                self.rx_sender.send(msg).await.unwrap();
+                self.rx_sender
+                    .send(ReceiveResponse(msg.0, msg.1))
+                    .await
+                    .unwrap();
                 continue;
             }
             let sender = senders.entry(msg.0).or_insert_with(|| {
                 let addr = *self.peer_addresses.get(&msg.0).unwrap();
-                SendingWorker::spawn(addr)
+                SendingWorker::spawn(addr, self.public_key)
             });
-            let msg = Message(self.public_key, msg.1);
             sender.send(msg).await.unwrap();
         }
     }
 }
 
 struct ReceivingWorker {
-    sender: Sender<Message>,
+    sender: Sender<ReceiveResponse>,
     remote_addr: SocketAddr,
     framed_reader: Framed<TcpStream, LengthDelimitedCodec>,
 }
 
 impl ReceivingWorker {
-    fn spawn(remote_addr: SocketAddr, socket: TcpStream, sender: Sender<Message>) {
+    fn spawn(remote_addr: SocketAddr, socket: TcpStream, sender: Sender<ReceiveResponse>) {
         let reader = Framed::new(socket, LengthDelimitedCodec::new());
         tokio::spawn(async move {
             Self {
@@ -158,7 +160,10 @@ impl ReceivingWorker {
                             self.remote_addr,
                             crate::crypto::publickey_to_base64(msg.0)
                         );
-                        self.sender.send(msg).await.unwrap()
+                        self.sender
+                            .send(ReceiveResponse(msg.0, msg.1))
+                            .await
+                            .unwrap()
                     }
                     Err(e) => error!("{}", e),
                 },
@@ -170,16 +175,18 @@ impl ReceivingWorker {
 
 struct SendingWorker {
     remote_addr: SocketAddr,
-    receiver: Receiver<Message>,
-    buffer: VecDeque<Message>,
+    my_pubkey: PublicKeyBytes,
+    receiver: Receiver<SendRequest>,
+    buffer: VecDeque<SendRequest>,
 }
 
 impl SendingWorker {
-    fn spawn(remote_addr: SocketAddr) -> Sender<Message> {
+    fn spawn(remote_addr: SocketAddr, pubkey: PublicKeyBytes) -> Sender<SendRequest> {
         let (sender, receiver) = channel(1000);
         tokio::spawn(async move {
             Self {
                 remote_addr,
+                my_pubkey: pubkey,
                 receiver,
                 buffer: Default::default(),
             }
@@ -244,12 +251,12 @@ impl SendingWorker {
         let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
         loop {
             while let Some(msg) = self.buffer.pop_front() {
-                let msg_bytes: Bytes = msg.try_to_vec()?.into();
+                let msg_bytes: Bytes = Message(self.my_pubkey, msg.1).try_to_vec()?.into();
                 trace!("send msg to {} in keep_alive", self.remote_addr);
                 writer.send(msg_bytes).await?;
             }
             while let Some(msg) = self.receiver.recv().await {
-                let msg_bytes: Bytes = msg.try_to_vec()?.into();
+                let msg_bytes: Bytes = Message(self.my_pubkey, msg.1).try_to_vec()?.into();
                 trace!("send msg to {} in keep_alive", self.remote_addr);
                 writer.send(msg_bytes).await?;
             }
@@ -266,7 +273,7 @@ impl networking::Network for NetworkImpl {
         self.validator_set.write().unwrap().apply_updates(&updates);
     }
 
-    fn broadcast(&mut self, message: HsMessage) {
+    fn broadcast(&mut self, message: InnerMessage) {
         let validators: Vec<_> = self
             .validator_set
             .read()
@@ -279,13 +286,13 @@ impl networking::Network for NetworkImpl {
         }
     }
 
-    fn send(&mut self, peer: PublicKeyBytes, message: HsMessage) {
+    fn send(&mut self, peer: PublicKeyBytes, message: InnerMessage) {
         self.tx_sender
-            .blocking_send(Message(peer, message))
+            .blocking_send(SendRequest(peer, message))
             .unwrap();
     }
 
-    fn recv(&mut self) -> Option<(PublicKeyBytes, HsMessage)> {
+    fn recv(&mut self) -> Option<(PublicKeyBytes, InnerMessage)> {
         let mut chan = match self.rx_receiver.try_lock() {
             Ok(chan) => chan,
             Err(TryLockError::WouldBlock) => return None,
@@ -299,9 +306,13 @@ impl networking::Network for NetworkImpl {
     }
 }
 
+struct SendRequest(PublicKeyBytes, InnerMessage);
+
+struct ReceiveResponse(PublicKeyBytes, InnerMessage);
+
 // TODO: add Signature
 #[derive(BorshDeserialize, BorshSerialize)]
-struct Message(PublicKeyBytes, HsMessage);
+struct Message(PublicKeyBytes, InnerMessage);
 
 #[cfg(test)]
 mod network_test {
