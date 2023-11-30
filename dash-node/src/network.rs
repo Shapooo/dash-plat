@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, RwLock, TryLockError};
 use std::thread;
+use std::time::Duration;
 
+use anyhow::Result;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
@@ -11,11 +13,12 @@ use hotstuff_rs::{
     networking,
     types::{PublicKeyBytes, ValidatorSet, ValidatorSetUpdates},
 };
-use log::{error, trace};
+use log::{error, trace, warn};
 use tokio::{
     net::{TcpListener, TcpStream},
     runtime::Builder,
     sync::mpsc::{channel, error::TryRecvError, Receiver, Sender},
+    time,
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
@@ -50,6 +53,7 @@ impl NetworkImpl {
     }
 }
 
+#[allow(dead_code)]
 struct NetworkDispatcher {
     host_addr: SocketAddr,
     rx_sender: Sender<Message>,
@@ -103,25 +107,19 @@ impl NetworkDispatcher {
         });
 
         // looping sending msg
-        let mut connections: HashMap<PublicKeyBytes, TcpStream> = HashMap::new();
+        let mut senders: HashMap<PublicKeyBytes, _> = self
+            .peer_addresses
+            .iter()
+            .map(|(key, addr)| (*key, SendingWorker::spawn(*addr)))
+            .collect();
         while let Some(msg) = self.tx_receiver.recv().await {
             trace!("send msg to {}", crate::crypto::publickey_to_base64(msg.0));
-            let stream = match connections.get_mut(&msg.0) {
-                Some(stream) => Some(stream),
-                None => {
-                    let addr = *self.peer_addresses.get(&msg.0).unwrap();
-                    TcpStream::connect(addr).await.ok().and_then(|stream| {
-                        connections.insert(msg.0, stream);
-                        connections.get_mut(&msg.0)
-                    })
-                }
-            };
-            if let Some(stream) = stream {
-                let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
-                let msg = Message(self.public_key, msg.1);
-                let msg_bytes: Bytes = msg.try_to_vec().unwrap().into();
-                writer.send(msg_bytes).await.unwrap();
-            }
+            let sender = senders.entry(msg.0).or_insert_with(|| {
+                let addr = *self.peer_addresses.get(&msg.0).unwrap();
+                SendingWorker::spawn(addr)
+            });
+            let msg = Message(self.public_key, msg.1);
+            sender.send(msg).await.unwrap();
         }
     }
 }
@@ -162,6 +160,95 @@ impl ReceivingWorker {
                 },
                 Err(e) => error!("{}", e),
             };
+        }
+    }
+}
+
+struct SendingWorker {
+    remote_addr: SocketAddr,
+    receiver: Receiver<Message>,
+    buffer: VecDeque<Message>,
+}
+
+impl SendingWorker {
+    fn spawn(remote_addr: SocketAddr) -> Sender<Message> {
+        let (sender, receiver) = channel(1000);
+        tokio::spawn(async move {
+            Self {
+                remote_addr,
+                receiver,
+                buffer: Default::default(),
+            }
+            .run()
+            .await
+        });
+        sender
+    }
+
+    async fn run(&mut self) {
+        let mut delay = 200;
+        let mut retry = 0;
+        loop {
+            match TcpStream::connect(self.remote_addr).await {
+                Ok(stream) => {
+                    trace!("Outgoing connection established with {}", self.remote_addr);
+
+                    // Reset the delay.
+                    delay = 200;
+                    retry = 0;
+
+                    // Try to transmit all messages in the buffer and keep transmitting incoming messages.
+                    // The following function only returns if there is an error.
+                    if let Err(e) = self.keep_alive(stream).await {
+                        warn!("{}", e);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "connect to {}, retry {} times, reason {}",
+                        self.remote_addr, retry, e
+                    );
+                    let timer = time::sleep(Duration::from_millis(delay));
+                    tokio::pin!(timer);
+
+                    'waiter: loop {
+                        tokio::select! {
+                            // Wait an increasing delay before attempting to reconnect.
+                            () = &mut timer => {
+                                delay = std::cmp::min(2*delay, 60_000);
+                                retry +=1;
+                                break 'waiter;
+                            },
+
+                            // Drain the channel into the buffer to not saturate the channel and block the caller task.
+                            // The caller is responsible to cleanup the buffer through the cancel handlers.
+                            Some(msg) = self.receiver.recv() => {
+                                self.buffer.push_back(msg);
+                                if self.buffer.len() > 1000 {
+                                    warn!("400 msg droped");
+                                    self.buffer.drain(0..400);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn keep_alive(&mut self, stream: TcpStream) -> Result<()> {
+        let mut writer = Framed::new(stream, LengthDelimitedCodec::new());
+        loop {
+            while let Some(msg) = self.buffer.pop_front() {
+                let msg_bytes: Bytes = msg.try_to_vec()?.into();
+                trace!("send msg to {} in keep_alive", self.remote_addr);
+                writer.send(msg_bytes).await?;
+            }
+            while let Some(msg) = self.receiver.recv().await {
+                let msg_bytes: Bytes = msg.try_to_vec()?.into();
+                trace!("send msg to {} in keep_alive", self.remote_addr);
+                writer.send(msg_bytes).await?;
+            }
         }
     }
 }
