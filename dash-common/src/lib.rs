@@ -2,13 +2,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct NewTransactionRequest {
-    pub id: u64,
+    pub hash: [u8; 32],
     pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct TransactionReceipt {
-    pub id: u64,
+    pub hash: [u8; 32],
     pub result: TransactionResult,
 }
 

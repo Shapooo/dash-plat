@@ -6,15 +6,17 @@ use anyhow::Result;
 use chrono::{DateTime, Local};
 use log::error;
 use rand::{thread_rng, Rng};
+use sha2::{Digest, Sha256};
 
 type TransactionTimestamp = (DateTime<Local>, DateTime<Local>);
+type TranHash = [u8; 32];
 
 #[derive(Clone, Debug)]
 pub struct TransactionManager {
     quorum: u64,
     sequence_number: u64,
-    pending_transactions: HashMap<u64, (DateTime<Local>, u64)>,
-    commited_transactions: HashMap<u64, TransactionTimestamp>,
+    pending_transactions: HashMap<TranHash, (DateTime<Local>, u64)>,
+    commited_transactions: HashMap<TranHash, TransactionTimestamp>,
 }
 
 impl TransactionManager {
@@ -29,30 +31,29 @@ impl TransactionManager {
 
     pub fn next(&mut self) -> Result<NewTransactionRequest> {
         let data = generate_random_bytes(128);
-        let transaction = NewTransactionRequest {
-            id: self.sequence_number,
-            data,
-        };
+        let hash: [u8; 32] = Sha256::digest(&data).into();
+
+        let transaction = NewTransactionRequest { hash, data };
         self.sequence_number = self.sequence_number.wrapping_add(1);
         self.pending_transactions
-            .insert(transaction.id, (Local::now(), 0));
+            .insert(transaction.hash, (Local::now(), 0));
         Ok(transaction)
     }
 
     pub fn collect_commit(&mut self, receipt: TransactionReceipt) -> Result<()> {
-        match self.pending_transactions.entry(receipt.id) {
+        match self.pending_transactions.entry(receipt.hash) {
             Entry::Occupied(mut entry) => {
                 let (_, commited_sum) = entry.get().clone();
                 if commited_sum >= self.quorum {
                     let (start, _) = entry.remove();
                     self.commited_transactions
-                        .insert(receipt.id, (start, Local::now()));
+                        .insert(receipt.hash, (start, Local::now()));
                 } else {
                     entry.get_mut().1 += 1;
                 }
             }
             Entry::Vacant(_) => {
-                error!("unknown transaction id: {}", receipt.id);
+                error!("unknown transaction");
             }
         }
         Ok(())

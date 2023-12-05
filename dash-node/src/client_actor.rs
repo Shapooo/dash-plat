@@ -62,10 +62,10 @@ impl Actor {
     async fn run(&mut self) {
         while let Some((_addr, msg_bytes)) = self.net_receiver.recv().await {
             let mut msg_bytes = msg_bytes.as_ref();
-            if let Ok(NewTransactionRequest { id, data }) =
+            if let Ok(NewTransactionRequest { hash, data }) =
                 NewTransactionRequest::deserialize(&mut msg_bytes)
             {
-                let _ = id;
+                let _ = hash;
                 self.block_sender.send(data).await.unwrap()
             }
         }
