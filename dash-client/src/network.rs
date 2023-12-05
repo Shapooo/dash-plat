@@ -1,12 +1,12 @@
-use crate::message::{NewTransactionRequest, TransactionReceipt};
+use dash_common::{NewTransactionRequest, TransactionReceipt};
+use dash_network::client::Client;
 
-use std::io::Write;
-use std::net::{SocketAddr, TcpStream};
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::thread::spawn;
+use std::net::SocketAddr;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytes::Bytes;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 pub struct Network {
     // peers: Vec<SocketAddr>,
@@ -16,8 +16,7 @@ pub struct Network {
 
 impl Network {
     pub fn new(peers: Vec<SocketAddr>) -> Result<Self> {
-        let (tx_sender, rx_receiver) =
-            spawn_main_worker_thread(peers.iter().copied().map(|peer| (peer, None)).collect())?;
+        let (tx_sender, rx_receiver) = spawn_main_worker_thread(peers)?;
         Ok(Self {
             // peers,
             tx_sender,
@@ -25,61 +24,38 @@ impl Network {
         })
     }
 
-    pub fn send_transaction(&self, transaction: NewTransactionRequest) -> Result<()> {
-        Ok(self.tx_sender.send(transaction)?)
+    pub async fn send_transaction(&self, transaction: NewTransactionRequest) -> Result<()> {
+        Ok(self.tx_sender.send(transaction).await?)
     }
 
-    pub fn receive_transaction_receipt(&self) -> Result<Option<TransactionReceipt>> {
-        match self.rx_receiver.try_recv() {
-            Ok(receipt) => Ok(Some(receipt)),
-            Err(TryRecvError::Empty) => Ok(None),
-            Err(TryRecvError::Disconnected) => Err(anyhow!("network disconnected")),
-        }
+    pub async fn receive_transaction_receipt(&mut self) -> Result<Option<TransactionReceipt>> {
+        Ok(self.rx_receiver.recv().await)
     }
 }
 
 fn spawn_main_worker_thread(
-    mut peers: Vec<(SocketAddr, Option<Sender<NewTransactionRequest>>)>,
+    peers: Vec<SocketAddr>,
 ) -> Result<(Sender<NewTransactionRequest>, Receiver<TransactionReceipt>)> {
-    let (tx_sender, tx_receiver) = channel();
-    let (rx_sender, rx_receiver) = channel();
+    let (tx_sender, mut tx_receiver) = channel::<NewTransactionRequest>(1000);
+    let (rx_sender, rx_receiver) = channel(1000);
 
-    spawn(move || {
-        // let (receipt_sender, receipt_receiver) = channel();
+    tokio::spawn(async move {
+        let (sender, mut receiver) = Client::spawn();
         loop {
-            let transaction: NewTransactionRequest = tx_receiver.recv().unwrap();
-            for (peer, sender) in peers.iter_mut() {
-                if let Some(sender) = sender {
-                    sender.send(transaction.clone()).unwrap();
-                } else {
-                    let new_sender = spawn_worker_thread(*peer, rx_sender.clone()).unwrap();
-                    new_sender.send(transaction.clone()).unwrap();
-                    *sender = Some(new_sender);
+            tokio::select! {
+                Some(request) = tx_receiver.recv() => {
+                    for peer in peers.iter() {
+                        let data = Bytes::from(request.try_to_vec().unwrap());
+                        sender.send((*peer, data)).await.unwrap();
+                    }
+                }
+                Some((_addr, msg_bytes)) = receiver.recv() => {
+                    let trans =
+                        TransactionReceipt::deserialize_reader(&mut msg_bytes.as_ref()).unwrap();
+                    rx_sender.send(trans).await.unwrap();
                 }
             }
         }
     });
     Ok((tx_sender, rx_receiver))
-}
-
-fn spawn_worker_thread(
-    addr: SocketAddr,
-    receipt_sender: Sender<TransactionReceipt>,
-) -> Result<Sender<NewTransactionRequest>> {
-    let mut stream = TcpStream::connect(addr)?;
-    let (tx_sender, tx_receiver) = channel::<NewTransactionRequest>();
-    spawn(move || loop {
-        match tx_receiver.try_recv() {
-            Ok(transaction) => {
-                stream
-                    .write_all(&transaction.try_to_vec().unwrap())
-                    .unwrap();
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => panic!("main thread disconnected"),
-        }
-        let receipt = TransactionReceipt::deserialize_reader(&mut stream).unwrap();
-        receipt_sender.send(receipt).unwrap();
-    });
-    Ok(tx_sender)
 }

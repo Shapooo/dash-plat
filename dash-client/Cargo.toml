@@ -8,13 +8,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+dash-common = { path = "../dash-common" }
+dash-network = { path = "../dash-network" }
 anyhow = "1.0.75"
 borsh = "0.10"
 log = "0.4.20"
 simple_logger = "4.2.0"
-dash-common = { path = "../dash-common" }
 serde = { version = "1.0.192", features = ["serde_derive"] }
 serde_yaml = "0.9.27"
 clap = { version = "4.4.8", features = ["cargo"] }
 chrono = "0.4.31"
 rand = { version = "0.8.5", features = ["std", "std_rng"] }
+tokio = { version = "1.34.0", features = ["fs", "net", "rt"] }
+bytes = "1.5.0"
