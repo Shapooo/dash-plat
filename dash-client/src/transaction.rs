@@ -1,4 +1,4 @@
-use crate::message::{NewTransactionRequest, TransactionReceipt};
+use dash_common::{NewTransactionRequest, TransactionReceipt};
 
 use std::collections::{hash_map::Entry, HashMap};
 
@@ -28,10 +28,10 @@ impl TransactionManager {
     }
 
     pub fn next(&mut self) -> Result<NewTransactionRequest> {
-        let content = generate_random_bytes(128);
+        let data = generate_random_bytes(128);
         let transaction = NewTransactionRequest {
             id: self.sequence_number,
-            content,
+            data,
         };
         self.sequence_number = self.sequence_number.wrapping_add(1);
         self.pending_transactions
@@ -48,7 +48,7 @@ impl TransactionManager {
                     self.commited_transactions
                         .insert(receipt.id, (start, Local::now()));
                 } else {
-                    entry.insert((Local::now(), commited_sum + 1));
+                    entry.get_mut().1 += 1;
                 }
             }
             Entry::Vacant(_) => {

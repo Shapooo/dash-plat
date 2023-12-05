@@ -1,6 +1,7 @@
 use crate::{config, network, transaction::TransactionManager};
 
 use anyhow::Result;
+use log::trace;
 
 const PENDING_TRANSACTIONS: u64 = 100;
 pub struct Client {
@@ -18,16 +19,17 @@ impl Client {
         })
     }
 
-    pub fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         loop {
-            if self.transaction_manager.pending_sum() < PENDING_TRANSACTIONS {
-                let transaction = self.transaction_manager.next()?;
-                self.network.send_transaction(transaction)?;
-            }
+            // if self.transaction_manager.pending_sum() < PENDING_TRANSACTIONS {
+            let transaction = self.transaction_manager.next()?;
+            trace!("send new trans");
+            self.network.send_transaction(transaction).await?;
+            // }
 
-            if let Some(receipt) = self.network.receive_transaction_receipt()? {
-                self.transaction_manager.collect_commit(receipt)?;
-            }
+            // if let Some(receipt) = self.network.receive_transaction_receipt().await? {
+            //     self.transaction_manager.collect_commit(receipt)?;
+            // }
         }
     }
 }

@@ -5,10 +5,11 @@ use clap::Arg;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     init_logger()?;
-    let config = init_config()?;
-    Client::new(config)?.run()?;
+    let config = init_config().await?;
+    Client::new(config)?.run().await?;
     Ok(())
 }
 
@@ -20,7 +21,7 @@ fn init_logger() -> Result<()> {
     Ok(())
 }
 
-fn init_config() -> Result<Config> {
+async fn init_config() -> Result<Config> {
     let args = clap::command!()
         .arg(
             Arg::new("config")
@@ -34,8 +35,8 @@ fn init_config() -> Result<Config> {
         )
         .get_matches();
     if let Some(path) = args.get_one::<String>("config") {
-        Config::from_path(path)
+        Config::from_path(path).await
     } else {
-        Config::new()
+        Config::new().await
     }
 }
