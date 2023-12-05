@@ -14,7 +14,7 @@ cargo build
 cargo run -p dash-tools --bin=config-gen
 
 for i in {0..3}
-do 
+do
     mkdir -p ${i}/config/peers
     mv $i.config.yaml ${i}/config/config.yaml
     mv $i.sec ${i}/config/sec_key
@@ -26,6 +26,8 @@ do
 done
 
 for i in {0..3}
-do 
+do
     rm ${i}.peerconfig.yaml
 done
+
+cp ${WORKSPACE_FOLDER}/target/debug/dash-client ./
