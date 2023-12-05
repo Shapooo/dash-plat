@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{channel, error::TryRecvError, Receiver, Sender};
 
 pub struct Network {
     // peers: Vec<SocketAddr>,
@@ -29,7 +29,11 @@ impl Network {
     }
 
     pub async fn receive_transaction_receipt(&mut self) -> Result<Option<TransactionReceipt>> {
-        Ok(self.rx_receiver.recv().await)
+        match self.rx_receiver.try_recv() {
+            Ok(a) => Ok(Some(a)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(e) => panic!("{}", e),
+        }
     }
 }
 
