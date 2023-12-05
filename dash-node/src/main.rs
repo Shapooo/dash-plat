@@ -1,8 +1,12 @@
 use dash_node::{
-    app, client_handler::ClientHandler, config::Config, kv_store::KVStoreImpl, network::NetworkImpl,
+    app,
+    client_actor::ClientActor,
+    config::Config,
+    kv_store::KVStoreImpl,
+    network::{NetConfig, NetworkImpl},
 };
 
-use std::sync::mpsc::channel;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Arg;
@@ -13,32 +17,33 @@ use hotstuff_rs::{
 };
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+use tokio::runtime::Builder;
 
 fn main() -> Result<()> {
     init_logger()?;
     let config = init_config()?;
 
-    let (block_tx, block_rx) = channel();
-    let app = app::AppImpl::new(block_rx);
-    let client_handler = ClientHandler::new(config.host_address, block_tx);
-    client_handler.run()?;
+    // let (block_tx, block_rx) = channel(1000);
+    let kv_store = KVStoreImpl::default();
+    let rt = Arc::new(Builder::new_multi_thread().enable_all().build().unwrap());
+    let block_receiver = ClientActor::spawn(config.client_listen_addr, rt.clone());
+    let app = app::AppImpl::new(block_receiver);
     let mut initial_validators = ValidatorSetUpdates::new();
 
     config.validators.iter().for_each(|pubkey| {
         initial_validators.insert(*pubkey, 1);
     });
 
-    let kv_store = KVStoreImpl::default();
-
     Replica::initialize(kv_store.clone(), AppStateUpdates::new(), initial_validators);
     let keypair = config
         .my_keypair
         .expect("FATAL: my keypair not initialized!");
-    let network = NetworkImpl::new(
-        config.peer_addresses,
-        config.host_address,
-        keypair.public.to_bytes(),
-    );
+    let net_config = NetConfig {
+        listen_addr: config.peer_listen_addr,
+        public_key: keypair.public.to_bytes(),
+        initial_peers: config.peer_addresses,
+    };
+    let network = NetworkImpl::new(net_config, rt);
 
     let pacemaker = DefaultPacemaker::new(
         config.minimum_view_timeout,
@@ -47,7 +52,7 @@ fn main() -> Result<()> {
     );
     let _replica = Replica::start(app, keypair, network, kv_store, pacemaker);
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(10));
+        std::thread::sleep(std::time::Duration::from_secs(u64::MAX));
     }
 }
 

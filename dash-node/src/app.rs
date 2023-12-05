@@ -1,8 +1,9 @@
 use crate::kv_store;
 
-use std::sync::mpsc::Receiver;
+// use std::sync::mpsc::Receiver;
 
 use hotstuff_rs::app;
+use tokio::sync::mpsc::Receiver;
 
 pub struct AppImpl {
     block_rx: Receiver<Vec<u8>>,
@@ -23,9 +24,9 @@ impl app::App<kv_store::KVStoreImpl> for AppImpl {
         &mut self,
         _request: app::ProduceBlockRequest<kv_store::KVStoreImpl>,
     ) -> app::ProduceBlockResponse {
-        let data = match self.block_rx.recv() {
-            Ok(data) => data,
-            Err(e) => panic!("{}", e),
+        let data = match self.block_rx.blocking_recv() {
+            Some(data) => data,
+            None => panic!("block channel disconnected"),
         };
         app::ProduceBlockResponse {
             data_hash: [0; 32],
