@@ -1,5 +1,5 @@
 pub mod app;
-pub mod client_handler;
+pub mod client_actor;
 pub mod config;
 pub mod crypto;
 pub mod kv_store;
