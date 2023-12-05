@@ -1,4 +1,6 @@
-use crate::{receiver::NetReceiver, sender::NetSender};
+// use crate::{receiver::Server, sender::NetSender};
+use crate::crypto::publickey_to_base64;
+use dash_network::{client, server};
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -22,7 +24,7 @@ use tokio::{
 pub struct NetConfig {
     pub initial_peers: HashMap<PublicKeyBytes, SocketAddr>,
     pub public_key: PublicKeyBytes,
-    pub listening_addr: SocketAddr,
+    pub listen_addr: SocketAddr,
 }
 
 #[derive(Clone)]
@@ -32,9 +34,9 @@ pub struct NetworkImpl {
     peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
     address_peers: Arc<HashMap<SocketAddr, PublicKeyBytes>>,
     my_publickey: PublicKeyBytes,
-    tx_sender: Sender<(SocketAddr, Bytes)>,
-    rx_receiver: Arc<Mutex<Receiver<(SocketAddr, Bytes)>>>,
-    listening_addr: SocketAddr,
+    tx_sender: Sender<(PublicKeyBytes, Bytes)>,
+    rx_receiver: Arc<Mutex<Receiver<(PublicKeyBytes, Bytes)>>>,
+    listen_addr: SocketAddr,
 }
 
 impl NetworkImpl {
@@ -51,25 +53,58 @@ impl NetworkImpl {
         let (tx_sender, tx_receiver) = channel(1000);
         let (rx_sender, rx_receiver) = channel(1000);
 
-        thread::spawn(move || {
-            tokio::spawn(async {
-                NetSender::spawn(tx_receiver);
-                NetReceiver::spawn(config.listening_addr, rx_sender);
-                loop {
-                    tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
-                }
-            });
-        });
-
-        Self {
+        let network = Self {
             validator_set: Arc::new(RwLock::new(ValidatorSet::new())),
-            peer_addresses,
-            address_peers,
+            peer_addresses: peer_addresses.clone(),
+            address_peers: address_peers.clone(),
             my_publickey: config.public_key,
             tx_sender,
             rx_receiver: Arc::new(Mutex::new(rx_receiver)),
-            listening_addr: config.listening_addr,
+            listen_addr: config.listen_addr,
+        };
+
+        thread::spawn(move || {
+            rt.block_on(async {
+                dispatching(
+                    config.listen_addr,
+                    tx_receiver,
+                    rx_sender,
+                    peer_addresses,
+                    // address_peers,
+                )
+                .await;
+            });
+        });
+
+        network
+    }
+}
+
+async fn dispatching(
+    listening_addr: SocketAddr,
+    mut tx_receiver: Receiver<(PublicKeyBytes, Bytes)>,
+    rx_sender: Sender<(PublicKeyBytes, Bytes)>,
+    peer_addresses: Arc<HashMap<PublicKeyBytes, SocketAddr>>,
+    // address_peers: Arc<HashMap<SocketAddr, PublicKeyBytes>>,
+) {
+    tokio::spawn(async move {
+        let (sender, _receiver) = client::Client::spawn();
+        while let Some((key, msg)) = tx_receiver.recv().await {
+            if let Some(addr) = peer_addresses.get(&key) {
+                sender.send((*addr, msg)).await.unwrap();
+            } else {
+                warn!("Cannot find addr of {}", publickey_to_base64(key));
+            }
         }
+    });
+    tokio::spawn(async move {
+        let (_sender, mut receiver) = server::Server::spawn(listening_addr);
+        while let Some((_addr, msg)) = receiver.recv().await {
+            rx_sender.send((Default::default(), msg)).await.unwrap();
+        }
+    });
+    loop {
+        tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
     }
 }
 
@@ -104,14 +139,7 @@ impl networking::Network for NetworkImpl {
         .try_to_vec()
         .unwrap()
         .into();
-        let peer_addr = match self.peer_addresses.get(&peer) {
-            Some(addr) => *addr,
-            None => {
-                warn!("Unknown peer public key, message droped!");
-                return;
-            }
-        };
-        self.tx_sender.blocking_send((peer_addr, msg)).unwrap();
+        self.tx_sender.blocking_send((peer, msg)).unwrap();
     }
 
     fn recv(&mut self) -> Option<(PublicKeyBytes, InnerMessage)> {
@@ -121,7 +149,7 @@ impl networking::Network for NetworkImpl {
             Err(e) => panic!("{:?}", e),
         };
         match chan.try_recv() {
-            Ok((_remote_addr, data)) => {
+            Ok((_, data)) => {
                 let Message { from, to, data } = Message::deserialize(&mut data.as_ref()).unwrap();
                 if to != self.my_publickey {
                     warn!("Not my message, droped!");
