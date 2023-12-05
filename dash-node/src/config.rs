@@ -15,7 +15,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-    pub host_address: SocketAddr,
+    pub peer_listen_addr: SocketAddr,
+    pub client_listen_addr: SocketAddr,
     #[serde(skip)]
     pub my_keypair: Option<DalekKeypair>,
     #[serde(skip)]

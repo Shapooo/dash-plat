@@ -1,4 +1,5 @@
-host_address: 127.0.0.1:8080
+peer_listen_address: 127.0.0.1:8080
+client_listen_address: 127.0.0.1:8081
 minimum_view_timeout_ms: 500
 sync_request_limit: 10
 sync_response_timeout_ms: 5000
