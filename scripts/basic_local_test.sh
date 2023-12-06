@@ -30,4 +30,7 @@ do
     rm ${i}.peerconfig.yaml
 done
 
-cp ${WORKSPACE_FOLDER}/target/debug/dash-client ./
+mkdir -p client/config
+mv client.config.yaml client/config/config.yaml
+mv client.sec client/config/sec_key
+cp ${WORKSPACE_FOLDER}/target/debug/dash-client ./client

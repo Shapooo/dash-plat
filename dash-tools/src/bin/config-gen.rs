@@ -59,13 +59,20 @@ fn main() -> Result<()> {
                         .unwrap()
                 })
                 .collect(),
+            keypair: Some(crypto::generate_keypair()),
         };
         let mut client_config = OpenOptions::new()
             .create(true)
             .truncate(true)
             .write(true)
-            .open(&cli.output_path.join("client_config.yaml"))?;
+            .open(&cli.output_path.join("client.config.yaml"))?;
         client_config.write_all(serde_yaml::to_string(&config)?.as_bytes())?;
+        let mut sec_key = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&cli.output_path.join("client.sec"))?;
+        sec_key.write_all(crypto::keypair_to_pem(config.keypair.unwrap()).as_bytes())?;
     }
     Ok(())
 }

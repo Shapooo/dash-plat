@@ -359,6 +359,8 @@ dependencies = [
  "clap",
  "dash-common",
  "dash-network",
+ "ed25519",
+ "hotstuff_rs",
  "log",
  "rand 0.8.5",
  "serde",
