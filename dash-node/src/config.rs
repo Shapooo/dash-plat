@@ -1,4 +1,4 @@
-use crate::crypto;
+use dash_common::crypto;
 
 use std::collections::{HashMap, HashSet};
 use std::env::current_exe;

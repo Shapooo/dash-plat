@@ -1,5 +1,4 @@
-// use crate::{receiver::Server, sender::NetSender};
-use crate::crypto::publickey_to_base64;
+use dash_common::crypto::publickey_to_base64;
 use dash_network::{client, server};
 
 use std::collections::HashMap;

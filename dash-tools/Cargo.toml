@@ -10,6 +10,7 @@ edition = "2021"
 [dependencies]
 dash-node = { path = "../dash-node" }
 dash-client = { path = "../dash-client" }
+dash-common = { path = "../dash-common" }
 anyhow = "1.0.75"
 clap = { version = "4.4.8", features = ["derive"] }
 serde_yaml = "0.9.27"

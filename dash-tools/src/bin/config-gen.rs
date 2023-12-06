@@ -1,8 +1,6 @@
 use dash_client::config::Config as ClientConfig;
-use dash_node::{
-    config::{Config, PeerConfig},
-    crypto,
-};
+use dash_common::crypto;
+use dash_node::config::{Config, PeerConfig};
 
 use std::io::Write;
 use std::net::SocketAddr;
