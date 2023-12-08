@@ -17,16 +17,15 @@ use hotstuff_rs::{
 };
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
-use tokio::runtime::Builder;
+use tokio::{runtime::Builder, sync::mpsc::channel};
 
 fn main() -> Result<()> {
     init_logger()?;
     let config = init_config()?;
 
-    // let (block_tx, block_rx) = channel(1000);
     let kv_store = KVStoreImpl::default();
     let rt = Arc::new(Builder::new_multi_thread().enable_all().build().unwrap());
-    let block_receiver = ClientActor::spawn(config.client_listen_addr, rt.clone());
+    let (block_sender, block_receiver) = channel(1000);
     let app = app::AppImpl::new(block_receiver);
     let mut initial_validators = ValidatorSetUpdates::new();
 
@@ -38,12 +37,13 @@ fn main() -> Result<()> {
     let keypair = config
         .my_keypair
         .expect("FATAL: my keypair not initialized!");
+    let public_key = keypair.public.to_bytes();
     let net_config = NetConfig {
         listen_addr: config.peer_listen_addr,
-        public_key: keypair.public.to_bytes(),
+        public_key,
         initial_peers: config.peer_addresses,
     };
-    let network = NetworkImpl::new(net_config, rt);
+    let network = NetworkImpl::new(net_config, rt.clone());
 
     let pacemaker = DefaultPacemaker::new(
         config.minimum_view_timeout,
@@ -51,6 +51,13 @@ fn main() -> Result<()> {
         config.sync_response_timeout,
     );
     let _replica = Replica::start(app, keypair, network, kv_store, pacemaker);
+    ClientActor::spawn(
+        public_key,
+        config.client_listen_addr,
+        block_sender,
+        Arc::new(_replica),
+        rt,
+    );
     loop {
         std::thread::sleep(std::time::Duration::from_secs(u64::MAX));
     }
@@ -59,6 +66,7 @@ fn main() -> Result<()> {
 fn init_logger() -> Result<()> {
     SimpleLogger::new()
         .with_level(LevelFilter::Debug)
+        .with_module_level("hotstuff_rs", LevelFilter::Warn)
         .env()
         .init()?;
     Ok(())

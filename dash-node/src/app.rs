@@ -1,16 +1,16 @@
 use crate::kv_store;
-
-// use std::sync::mpsc::Receiver;
+use dash_common::NewTransactionRequest;
 
 use hotstuff_rs::app;
+use log::trace;
 use tokio::sync::mpsc::Receiver;
 
 pub struct AppImpl {
-    block_rx: Receiver<Vec<u8>>,
+    block_rx: Receiver<NewTransactionRequest>,
 }
 
 impl AppImpl {
-    pub fn new(block_rx: Receiver<Vec<u8>>) -> Self {
+    pub fn new(block_rx: Receiver<NewTransactionRequest>) -> Self {
         Self { block_rx }
     }
 }
@@ -24,13 +24,14 @@ impl app::App<kv_store::KVStoreImpl> for AppImpl {
         &mut self,
         _request: app::ProduceBlockRequest<kv_store::KVStoreImpl>,
     ) -> app::ProduceBlockResponse {
-        let data = match self.block_rx.blocking_recv() {
-            Some(data) => data,
+        let request = match self.block_rx.blocking_recv() {
+            Some(request) => request,
             None => panic!("block channel disconnected"),
         };
+        trace!("produce_block {:?}", request.hash);
         app::ProduceBlockResponse {
-            data_hash: [0; 32],
-            data: vec![data],
+            data_hash: request.hash,
+            data: vec![request.data],
             app_state_updates: None,
             validator_set_updates: None,
         }
