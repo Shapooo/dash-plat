@@ -1,14 +1,20 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use hotstuff_rs::types::PublicKeyBytes;
+
+pub type TransactionHash = [u8; 32];
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct NewTransactionRequest {
-    pub hash: [u8; 32],
+    pub requester: PublicKeyBytes,
+    pub hash: TransactionHash,
     pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct TransactionReceipt {
-    pub hash: [u8; 32],
+    pub receiptor: PublicKeyBytes,
+    pub requester: PublicKeyBytes,
+    pub hash: TransactionHash,
     pub result: TransactionResult,
 }
 
