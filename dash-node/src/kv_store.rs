@@ -1,9 +1,11 @@
-use hotstuff_rs::state;
 use std::collections::{hash_map, hash_set, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+use hotstuff_rs::state;
+use im::HashMap as ImHashMap;
+
 #[derive(Clone, Default)]
-pub struct KVStoreImpl(Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>);
+pub struct KVStoreImpl(Arc<RwLock<ImHashMap<Vec<u8>, Vec<u8>>>>);
 
 impl KVStoreImpl {
     pub fn new() -> Self {
@@ -13,8 +15,7 @@ impl KVStoreImpl {
 
 impl state::KVGet for KVStoreImpl {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        let map = self.0.read().unwrap();
-        map.get(key).cloned()
+        self.0.read().unwrap().get(key).cloned()
     }
 }
 
@@ -35,12 +36,11 @@ impl state::KVStore for KVStoreImpl {
     }
 
     fn clear(&mut self) {
-        let mut map = self.0.write().unwrap();
-        map.clear();
+        self.0.write().unwrap().clear();
     }
 
     fn snapshot(&self) -> Self::Snapshot<'_> {
-        SnapshotImpl(self.0.clone())
+        SnapshotImpl(self.0.read().unwrap().clone())
     }
 }
 
@@ -70,10 +70,10 @@ impl state::WriteBatch for WriteBatchImpl {
     }
 }
 
-pub struct SnapshotImpl(Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>);
+pub struct SnapshotImpl(ImHashMap<Vec<u8>, Vec<u8>>);
 
 impl state::KVGet for SnapshotImpl {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        self.0.read().unwrap().get(key).cloned()
+        self.0.get(key).cloned()
     }
 }
