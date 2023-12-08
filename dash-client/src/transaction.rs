@@ -1,39 +1,44 @@
-use dash_common::{NewTransactionRequest, TransactionReceipt};
+use dash_common::{NewTransactionRequest, TransactionHash, TransactionReceipt};
 
 use std::collections::{hash_map::Entry, HashMap};
 
 use anyhow::Result;
 use chrono::{DateTime, Local};
+use hotstuff_rs::types::PublicKeyBytes;
 use log::error;
 use rand::{thread_rng, Rng};
 use sha2::{Digest, Sha256};
 
 type TransactionTimestamp = (DateTime<Local>, DateTime<Local>);
-type TranHash = [u8; 32];
 
 #[derive(Clone, Debug)]
 pub struct TransactionManager {
     quorum: u64,
     sequence_number: u64,
-    pending_transactions: HashMap<TranHash, (DateTime<Local>, u64)>,
-    commited_transactions: HashMap<TranHash, TransactionTimestamp>,
+    pending_transactions: HashMap<TransactionHash, (DateTime<Local>, u64)>,
+    commited_transactions: HashMap<TransactionHash, TransactionTimestamp>,
+    pubkey: PublicKeyBytes,
 }
 
 impl TransactionManager {
-    pub fn new(quorum: u64) -> Self {
+    pub fn new(quorum: u64, pubkey: PublicKeyBytes) -> Self {
         Self {
             quorum,
             sequence_number: Default::default(),
             pending_transactions: Default::default(),
             commited_transactions: Default::default(),
+            pubkey,
         }
     }
 
     pub fn next(&mut self) -> Result<NewTransactionRequest> {
         let data = generate_random_bytes(128);
-        let hash: [u8; 32] = Sha256::digest(&data).into();
-
-        let transaction = NewTransactionRequest { hash, data };
+        let hash: TransactionHash = Sha256::digest(&data).into();
+        let transaction = NewTransactionRequest {
+            requester: self.pubkey,
+            hash,
+            data,
+        };
         self.sequence_number = self.sequence_number.wrapping_add(1);
         self.pending_transactions
             .insert(transaction.hash, (Local::now(), 0));
