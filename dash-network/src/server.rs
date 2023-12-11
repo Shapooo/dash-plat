@@ -1,6 +1,6 @@
 use crate::common::{Channel, Reader, Writer};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::net::SocketAddr;
 
 use bytes::Bytes;
@@ -54,10 +54,15 @@ impl Server {
                     }
                 }
                 Some((addr, msg)) = self.receiver.recv() => {
-                    if let Some(sender) = self.connections.get(&addr) {
-                        sender.send((addr, msg)).await.unwrap();
-                    } else {
-                        warn!("No connection from {}", addr);
+                    match  self.connections.entry(addr) {
+                        Entry::Occupied(mut entry) => {
+                            trace!("sending msg to {}", addr);
+                            if let Err(e) = entry.get_mut().send((addr, msg)).await {
+                                warn!("Disconnectted from {}: {}", addr, e);
+                                entry.remove();
+                            }
+                        }
+                        Entry::Vacant(_) => warn!("No connection from {}", addr),
                     }
                 }
             }
@@ -112,7 +117,8 @@ impl Connection {
                 Some((addr, data)) = self.receiver.recv() => {
                     trace!("sending msg to {}", addr);
                     if let Err(e) = self.writer.send(data).await {
-                        error!("{}", e);
+                        warn!("Disconnectted from {}: {}", self.remote_addr, e);
+                        return ;
                     }
                 }
             }
