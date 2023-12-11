@@ -6,6 +6,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Ok, Result};
 use hotstuff_rs::types::DalekKeypair;
+use log::info;
 use serde::{Deserialize, Serialize};
 use tokio::fs::read_to_string;
 
@@ -25,6 +26,7 @@ impl Config {
     }
 
     pub async fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        info!("loading config from: {:?}", path.as_ref());
         if !path.as_ref().is_dir() {
             return Err(anyhow!("config file not found, or not a directory"));
         }

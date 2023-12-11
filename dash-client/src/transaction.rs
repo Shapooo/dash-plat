@@ -1,11 +1,13 @@
-use dash_common::{NewTransactionRequest, TransactionHash, TransactionReceipt};
+use dash_common::{
+    crypto::publickey_to_base64, NewTransactionRequest, TransactionHash, TransactionReceipt,
+};
 
 use std::collections::{hash_map::Entry, HashMap};
 
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use hotstuff_rs::types::PublicKeyBytes;
-use log::warn;
+use log::{debug, trace, warn};
 use rand::{thread_rng, Rng};
 use sha2::{Digest, Sha256};
 
@@ -22,6 +24,11 @@ pub struct TransactionManager {
 
 impl TransactionManager {
     pub fn new(quorum: u64, pubkey: PublicKeyBytes) -> Self {
+        debug!(
+            "new transaction manager with quorum: {}, pubkey: {}",
+            quorum,
+            publickey_to_base64(pubkey)
+        );
         Self {
             quorum,
             sequence_number: Default::default(),
@@ -42,10 +49,16 @@ impl TransactionManager {
         self.sequence_number = self.sequence_number.wrapping_add(1);
         self.pending_transactions
             .insert(transaction.hash, (Local::now(), 0));
+        trace!(
+            "generate new transaction: {:?}, pending: {}",
+            transaction,
+            self.pending_transactions.len()
+        );
         Ok(transaction)
     }
 
     pub fn collect_commit(&mut self, receipt: TransactionReceipt) -> Result<()> {
+        trace!("collect commit: {:?}", receipt);
         match self.pending_transactions.entry(receipt.hash) {
             Entry::Occupied(mut entry) => {
                 let (_, commited_sum) = *entry.get();
@@ -56,6 +69,12 @@ impl TransactionManager {
                 } else {
                     entry.get_mut().1 += 1;
                 }
+                trace!(
+                    "collect commit: {:?}, pending: {}, commited: {}",
+                    receipt,
+                    self.pending_transactions.len(),
+                    self.commited_transactions.len()
+                );
             }
             Entry::Vacant(_) => {
                 warn!("Unknown transaction, maybe removed");

@@ -1,4 +1,5 @@
 use crate::{config, network, transaction::TransactionManager};
+use dash_common::crypto::publickey_to_base64;
 
 use anyhow::Result;
 use log::trace;
@@ -11,6 +12,7 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: config::Config) -> Result<Self> {
+        trace!("new client with config: {:?}", config);
         let quorum = config.node_addrs.len() as u64 / 3 * 2 + 1;
         let network = network::Network::new(config.node_addrs)?;
         let keypair = config.keypair.unwrap();
@@ -24,13 +26,19 @@ impl Client {
     pub async fn run(&mut self) -> Result<()> {
         loop {
             if self.transaction_manager.pending_sum() < PENDING_TRANSACTIONS {
+                trace!(
+                    "pending transaction: {}, so send new transaction",
+                    self.transaction_manager.pending_sum()
+                );
                 let transaction = self.transaction_manager.generate_transaction()?;
-                trace!("send new trans");
                 self.network.send_transaction(transaction).await?;
             }
 
             if let Some(receipt) = self.network.receive_transaction_receipt().await? {
-                trace!("recvd receipt");
+                trace!(
+                    "recvd receipt from: {}",
+                    publickey_to_base64(receipt.receiptor)
+                );
                 self.transaction_manager.collect_commit(receipt)?;
             }
         }
