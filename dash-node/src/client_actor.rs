@@ -53,7 +53,7 @@ struct Actor {
     net_receiver: Receiver<(SocketAddr, Bytes)>,
     requesters_addr_map: HashMap<PublicKeyBytes, SocketAddr>,
     block_requester_map: Arc<Mutex<HashMap<TransactionHash, PublicKeyBytes>>>,
-    receiver: Receiver<(PublicKeyBytes, TransactionHash)>,
+    committed_receiver: Receiver<(PublicKeyBytes, TransactionHash)>,
     pubkey: PublicKeyBytes,
 }
 
@@ -61,7 +61,7 @@ impl Actor {
     fn spawn(
         listen_addr: SocketAddr,
         block_sender: Sender<NewTransactionRequest>,
-        receiver: Receiver<(PublicKeyBytes, TransactionHash)>,
+        committed_receiver: Receiver<(PublicKeyBytes, TransactionHash)>,
         pubkey: PublicKeyBytes,
         block_requester_map: Arc<Mutex<HashMap<TransactionHash, PublicKeyBytes>>>,
     ) {
@@ -74,7 +74,7 @@ impl Actor {
                 net_receiver,
                 requesters_addr_map: Default::default(),
                 block_requester_map,
-                receiver,
+                committed_receiver,
                 pubkey,
             }
             .run()
@@ -90,12 +90,10 @@ impl Actor {
                     if let Ok(request) = NewTransactionRequest::deserialize(&mut msg_bytes) {
                         self.requesters_addr_map.insert(request.requester, addr);
                         self.block_requester_map.lock().await.insert(request.hash, request.requester);
-                        trace!("received request {:?}", request.hash);
                         self.block_sender.send(request).await.unwrap()
                     }
                 }
-                Some((pubkey, hash)) = self.receiver.recv() => {
-                    trace!("commited {:?}", hash);
+                Some((pubkey, hash)) = self.committed_receiver.recv() => {
                     if let Some(addr) = self.requesters_addr_map.get(&pubkey) {
                         trace!("send recept to {}", addr);
                         self.net_sender
@@ -123,20 +121,20 @@ impl Actor {
 }
 struct CommitChecker {
     replica: Arc<Replica<KVStoreImpl>>,
-    senders: Sender<(PublicKeyBytes, TransactionHash)>,
+    committed_sender: Sender<(PublicKeyBytes, TransactionHash)>,
     block_sender_map: Arc<Mutex<HashMap<TransactionHash, PublicKeyBytes>>>,
 }
 
 impl CommitChecker {
     fn spawn(
         replica: Arc<Replica<KVStoreImpl>>,
-        sender: Sender<(PublicKeyBytes, TransactionHash)>,
+        committed_sender: Sender<(PublicKeyBytes, TransactionHash)>,
         block_sender_map: Arc<Mutex<HashMap<TransactionHash, PublicKeyBytes>>>,
     ) {
         thread::spawn(move || {
             let mut checker = Self {
                 replica,
-                senders: sender,
+                committed_sender,
                 block_sender_map,
             };
             loop {
@@ -155,12 +153,12 @@ impl CommitChecker {
                 trace!("commited height {}", highest_commited_height);
                 for height in receipted_height + 1..=highest_commited_height {
                     let block = snapshot.block_at_height(height).unwrap();
-                    let hash = snapshot.block(&block).unwrap().data_hash;
+                    let hash = snapshot.block_data_hash(&block).unwrap();
                     let Some(pubkey) = self.block_sender_map.blocking_lock().remove(&hash) else {
-                        error!("Unknown block {:?}!", block);
+                        error!("Unknown block!");
                         continue;
                     };
-                    self.senders.blocking_send((pubkey, hash)).unwrap();
+                    self.committed_sender.blocking_send((pubkey, hash)).unwrap();
                 }
                 receipted_height = highest_commited_height;
             }
