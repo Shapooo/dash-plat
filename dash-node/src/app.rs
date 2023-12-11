@@ -93,9 +93,10 @@ impl App<KVStoreImpl> for AppImpl {
         &mut self,
         request: ValidateBlockRequest<KVStoreImpl>,
     ) -> ValidateBlockResponse {
-        if let Some(_) = request
+        if request
             .block_tree()
             .block_data_hash(&request.proposed_block().data_hash)
+            .is_some()
         {
             ValidateBlockResponse::Invalid
         } else {

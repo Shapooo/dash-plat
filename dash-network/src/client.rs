@@ -125,21 +125,19 @@ impl Connection {
 
     async fn keep_alive(&mut self, stream: TcpStream) -> Result<(), Error> {
         let (mut writer, mut reader) = Framed::new(stream, LengthDelimitedCodec::new()).split();
+        while let Some(data) = self.buffer.pop_front() {
+            trace!("send msg to {} in keep_alive", self.remote_addr);
+            writer.send(data).await?;
+        }
         loop {
-            while let Some(data) = self.buffer.pop_front() {
-                trace!("send msg to {} in keep_alive", self.remote_addr);
-                writer.send(data).await?;
-            }
-            loop {
-                tokio::select! {
-                    Some(data) = self.receiver.recv() => {
-                        trace!("send msg to {} in keep_alive", self.remote_addr);
-                        writer.send(data).await?;
-                    }
-                    Some(data) = reader.next() => {
-                        let data = data?.freeze();
-                        self.sender.send((self.remote_addr, data)).await.unwrap();
-                    }
+            tokio::select! {
+                Some(data) = self.receiver.recv() => {
+                    trace!("send msg to {} in keep_alive", self.remote_addr);
+                    writer.send(data).await?;
+                }
+                Some(data) = reader.next() => {
+                    let data = data?.freeze();
+                    self.sender.send((self.remote_addr, data)).await.unwrap();
                 }
             }
         }

@@ -31,7 +31,7 @@ impl TransactionManager {
         }
     }
 
-    pub fn next(&mut self) -> Result<NewTransactionRequest> {
+    pub fn generate_transaction(&mut self) -> Result<NewTransactionRequest> {
         let data = generate_random_bytes(128);
         let hash: TransactionHash = Sha256::digest(&data).into();
         let transaction = NewTransactionRequest {
@@ -48,7 +48,7 @@ impl TransactionManager {
     pub fn collect_commit(&mut self, receipt: TransactionReceipt) -> Result<()> {
         match self.pending_transactions.entry(receipt.hash) {
             Entry::Occupied(mut entry) => {
-                let (_, commited_sum) = entry.get().clone();
+                let (_, commited_sum) = *entry.get();
                 if commited_sum >= self.quorum {
                     let (start, _) = entry.remove();
                     self.commited_transactions

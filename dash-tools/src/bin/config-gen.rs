@@ -51,7 +51,6 @@ fn main() -> Result<()> {
     if cli.with_client_config {
         let config = ClientConfig {
             node_addrs: (0..cli.count)
-                .into_iter()
                 .map(|i| {
                     let port = cli.start_port + i * 2 + 1;
                     ("127.0.0.1:".to_string() + &port.to_string())
@@ -65,13 +64,13 @@ fn main() -> Result<()> {
             .create(true)
             .truncate(true)
             .write(true)
-            .open(&cli.output_path.join("client.config.yaml"))?;
+            .open(cli.output_path.join("client.config.yaml"))?;
         client_config.write_all(serde_yaml::to_string(&config)?.as_bytes())?;
         let mut sec_key = OpenOptions::new()
             .create(true)
             .truncate(true)
             .write(true)
-            .open(&cli.output_path.join("client.sec"))?;
+            .open(cli.output_path.join("client.sec"))?;
         sec_key.write_all(crypto::keypair_to_pem(config.keypair.unwrap()).as_bytes())?;
     }
     Ok(())

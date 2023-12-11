@@ -1,6 +1,6 @@
 use crate::common::{Channel, Reader, Writer};
 
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{hash_map::Entry, HashMap};
 use std::net::SocketAddr;
 
 use bytes::Bytes;

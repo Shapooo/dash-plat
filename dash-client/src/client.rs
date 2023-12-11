@@ -24,7 +24,7 @@ impl Client {
     pub async fn run(&mut self) -> Result<()> {
         loop {
             if self.transaction_manager.pending_sum() < PENDING_TRANSACTIONS {
-                let transaction = self.transaction_manager.next()?;
+                let transaction = self.transaction_manager.generate_transaction()?;
                 trace!("send new trans");
                 self.network.send_transaction(transaction).await?;
             }
