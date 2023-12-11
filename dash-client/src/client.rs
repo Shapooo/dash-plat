@@ -11,7 +11,7 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: config::Config) -> Result<Self> {
-        let quorum = config.node_addrs.len() as u64 / 3 + 1;
+        let quorum = config.node_addrs.len() as u64 / 3 * 2 + 1;
         let network = network::Network::new(config.node_addrs)?;
         let keypair = config.keypair.unwrap();
         let pubkey = keypair.public.to_bytes();
