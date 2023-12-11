@@ -5,7 +5,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use hotstuff_rs::types::PublicKeyBytes;
-use log::error;
+use log::warn;
 use rand::{thread_rng, Rng};
 use sha2::{Digest, Sha256};
 
@@ -58,7 +58,7 @@ impl TransactionManager {
                 }
             }
             Entry::Vacant(_) => {
-                error!("unknown transaction");
+                warn!("Unknown transaction, maybe removed");
             }
         }
         Ok(())
