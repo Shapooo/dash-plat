@@ -42,23 +42,15 @@ impl App<KVStoreImpl> for AppImpl {
             if let Some(parent) = request.parent_block() {
                 let hash = tree.block_data_hash(&parent).unwrap();
                 pending_ancient.insert(hash);
-                if let Some(grandparent) = tree.block_justify(&parent).and_then(|qc| {
-                    if qc.is_genesis_qc() {
-                        None
-                    } else {
-                        Some(qc.block)
-                    }
-                }) {
+                if let Some(grandparent) = tree
+                    .block_justify(&parent)
+                    .and_then(|qc| (!qc.is_genesis_qc()).then_some(qc.block))
+                {
                     let hash = tree.block_data_hash(&grandparent).unwrap();
                     pending_ancient.insert(hash);
-                    if let Some(great_grandparent) =
-                        tree.block_justify(&grandparent).and_then(|qc| {
-                            if qc.is_genesis_qc() {
-                                None
-                            } else {
-                                Some(qc.block)
-                            }
-                        })
+                    if let Some(great_grandparent) = tree
+                        .block_justify(&grandparent)
+                        .and_then(|qc| (!qc.is_genesis_qc()).then_some(qc.block))
                     {
                         let hash = tree.block_data_hash(&great_grandparent).unwrap();
                         pending_ancient.insert(hash);
